@@ -33,7 +33,8 @@ WORKDIR /ankisyncdir
 
 # 从构建阶段复制编译好的二进制文件
 # 注意：这里假设构建出的可执行文件名为 anki-sync-server，位于 target/release/
-COPY --from=builder /app/target/release/anki-sync-server /usr/local/bin/anki-sync-server
+# ✅ 正确路径：使用 WORKDIR /anki-repo 来找到编译的二进制文件
+COPY --from=builder /anki-repo/target/release/anki-sync-server /usr/local/bin/anki-sync-server
 
 # 暴露端口
 EXPOSE 8080
