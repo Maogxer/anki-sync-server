@@ -11,7 +11,7 @@ on:
 
 env:
   # 替换为您的 Docker Hub 用户名
-  IMAGE_NAME: your_dockerhub_username/anki-sync-server 
+  IMAGE_NAME: maogxer/anki-sync-server 
   DOCKER_HUB_USERNAME: ${{ secrets.DOCKER_HUB_USERNAME }}
   DOCKER_HUB_TOKEN: ${{ secrets.DOCKER_HUB_TOKEN }}
 
