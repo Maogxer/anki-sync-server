@@ -1,28 +1,17 @@
 # .github/workflows/build-and-push.yml
 
-name: Build and Push Anki Sync Server Docker Image
+name: Anki Sync Server - Automated Tagged Build
 
 on:
-  # 当官方 Anki 仓库的 main 分支有新的提交时触发
-  # 注意：这需要配置 GitHub Actions 的 Webhook 或轮询
-  # 更简单的方式是：在您自己的仓库 main 分支有新提交时触发
-  push:
-    branches:
-      - main
-    paths:
-      - 'Dockerfile' # 只有 Dockerfile 更改时才构建
-      - '.github/workflows/build-and-push.yml'
-
-  # 或者，定时触发构建 (例如每天凌晨 3 点)
+  # 每天凌晨 3 点 UTC 触发构建
   schedule:
     - cron: '0 3 * * *'
-
-  # 也可以手动触发
+  # 允许手动触发
   workflow_dispatch:
 
 env:
-  # Docker 镜像名称
-  IMAGE_NAME: your_dockerhub_username/anki-sync-server # 替换为你的 Docker Hub 用户名
+  # 替换为您的 Docker Hub 用户名
+  IMAGE_NAME: your_dockerhub_username/anki-sync-server 
   DOCKER_HUB_USERNAME: ${{ secrets.DOCKER_HUB_USERNAME }}
   DOCKER_HUB_TOKEN: ${{ secrets.DOCKER_HUB_TOKEN }}
 
@@ -31,16 +20,48 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write # 如果推送到 GitHub Container Registry
-
+      packages: write
+    
     steps:
-      - name: Checkout repository
+      # =========================================================
+      # 1. 动态获取 Anki 官方仓库的最新稳定标签
+      # =========================================================
+      - name: Get Latest Anki Release Tag
+        id: get_tag
+        run: |
+          # 调用 GitHub API 获取 Anki 官方仓库的最新 Release Tag
+          # jq 用于解析 JSON 响应
+          LATEST_TAG=$(curl -s https://api.github.com/repos/ankitects/anki/releases/latest | jq -r .tag_name)
+          
+          # 检查是否成功获取标签
+          if [ -z "$LATEST_TAG" ]; then
+            echo "Error: Could not retrieve latest tag from Anki repository."
+            exit 1
+          fi
+          
+          echo "Latest Anki Tag found: $LATEST_TAG"
+          # 设置输出变量，供后续步骤使用
+          echo "ANKI_TAG=$LATEST_TAG" >> $GITHUB_OUTPUT
+          
+          # 设置环境变量，以便在 Dockerfile 中使用（如果需要）
+          echo "ANKI_TAG=$LATEST_TAG" >> $GITHUB_ENV
+
+      # =========================================================
+      # 2. 克隆 Anki 源码仓库（使用获取到的最新标签）
+      # =========================================================
+      - name: Checkout Anki repository (Tagged Version)
         uses: actions/checkout@v4
         with:
-          repository: ankitects/anki # 克隆 Anki 官方仓库
-          ref: main # 或 '2.1.xx' 具体的 Anki 稳定版本标签
+          # 克隆官方仓库
+          repository: ankitects/anki
+          # 使用上一步获取到的标签
+          ref: ${{ steps.get_tag.outputs.ANKI_TAG }}
+          # 克隆到 anki-repo 目录
           path: anki-repo
 
+      # =========================================================
+      # 3. 设置 Docker Buildx 并登录
+      # =========================================================
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -49,22 +70,25 @@ jobs:
         with:
           username: ${{ env.DOCKER_HUB_USERNAME }}
           password: ${{ env.DOCKER_HUB_TOKEN }}
-        # 如果推送到 GitHub Container Registry，使用 ghcr.io
-        # registry: ghcr.io
-        # username: ${{ github.actor }}
-        # password: ${{ secrets.GITHUB_TOKEN }}
 
+      # =========================================================
+      # 4. 构建并推送多平台镜像
+      # =========================================================
       - name: Build and push multi-arch Docker image
         uses: docker/build-push-action@v5
         with:
-          context: anki-repo/anki-sync-server # Dockerfile 的路径相对于克隆的仓库根目录
-          file: anki-repo/anki-sync-server/Dockerfile # Dockerfile 的实际路径
-          platforms: linux/amd64,linux/arm64 # 支持的架构
-          push: true # 推送到 Docker Hub 或 GCR
+          # Dockerfile context 是 anki-sync-server 所在的子目录
+          context: anki-repo/anki-sync-server
+          # Dockerfile 位于该子目录
+          file: anki-repo/anki-sync-server/Dockerfile
+          # 支持 amd64 和 arm64 架构
+          platforms: linux/amd64,linux/arm64 
+          push: true
           tags: |
+            # 使用 latest 标签
             ${{ env.IMAGE_NAME }}:latest
-            ${{ env.IMAGE_NAME }}:v${{ github.run_number }} # 例如：myuser/anki-sync-server:v123
-            # 你也可以从 Anki 仓库的标签中提取版本号
-            # ${{ env.IMAGE_NAME }}:${{ steps.get-anki-version.outputs.version }} # 需要一个额外步骤提取版本号
+            # 使用 Anki 的官方标签作为镜像版本号 (例如 myuser/anki-sync-server:2.1.66)
+            ${{ env.IMAGE_NAME }}:${{ steps.get_tag.outputs.ANKI_TAG }} 
+            
           cache-from: type=gha
           cache-to: type=gha,mode=max
