@@ -86,7 +86,7 @@ jobs:
           context: anki-repo 
           
           # file: Dockerfile 位于 anki-repo 目录的根部
-          file: anki-repo/Dockerfile 
+          file: anki-repo/docs/syncserver/Dockerfile
           
           platforms: linux/amd64,linux/arm64 
           push: true
