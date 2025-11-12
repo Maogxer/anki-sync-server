@@ -8,28 +8,20 @@ on:
   # 定期运行 (Cron Job): 例如，每周一凌晨 03:00 UTC 运行，检查新版本
   schedule:
     - cron: '0 3 * * 1' 
-  
-  # 如果你想在每次提交到 main 分支时构建，可以添加：
-  # push:
-  #   branches: [ main ]
     
 jobs:
   build_and_push:
     runs-on: ubuntu-latest
     
-    # 确保 secrets 已经配置，否则无法执行后续的登录和推送
-    environment:
-      name: DockerHub
-    
     # 定义环境变量，从 Secrets 中获取敏感信息
     env:
-      DOCKER_USERNAME: ${{ secrets.DOCKER_HUB_USERNAME }} # 引用你的用户名 Secret
-      DOCKER_PASSWORD: ${{ secrets.DOCKER_HUB_TOKEN }} # 引用你的密码/Token Secret
-      # 请将 YOUR_DOCKER_HUB_NAMESPACE 替换为你的 Docker Hub 用户名或组织名
-      DOCKER_REPO: maogxer/anki-sync-server 
+      DOCKER_USERNAME: ${{ secrets.DOCKER_HUB_USERNAME }}
+      DOCKER_PASSWORD: ${{ secrets.DOCKER_HUB_TOKEN }}
+      # ⚠️ 替换为你自己的 Docker Hub 用户名或组织名
+      DOCKER_REPO: YOUR_DOCKER_HUB_NAMESPACE/anki-sync-server 
       
     steps:
-      # 1. 检出你的仓库 (可选，但推荐)
+      # 1. 检出你的仓库
       - name: Checkout your repository
         uses: actions/checkout@v4
       
@@ -41,8 +33,7 @@ jobs:
       - name: Get latest Anki official release tag
         id: get_tag
         run: |
-          # 从 Anki 官方仓库获取最新的 Git Tag。
-          # 结果示例: "25.09" 或 "25.10.1"
+          # 从 Anki 官方仓库获取最新的 Git Tag
           ANKI_TAG=$(curl -s "https://api.github.com/repos/ankitects/anki/tags?per_page=1" | jq -r '.[0].name' | sed 's/^Anki //g')
           
           if [ -z "$ANKI_TAG" ]; then
@@ -51,8 +42,6 @@ jobs:
           fi
           
           echo "Latest Anki Tag found: ${ANKI_TAG}"
-          
-          # 将版本号作为输出，供后续步骤使用
           echo "version=$ANKI_TAG" >> $GITHUB_OUTPUT
       
       # 4. 克隆 Anki 官方源码仓库
@@ -60,30 +49,45 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ankitects/anki
-          ref: ${{ steps.get_tag.outputs.version }} # 使用最新的 Tag 检出特定版本
+          ref: ${{ steps.get_tag.outputs.version }}
           path: anki-official
           
-      # 5. 登录 Docker Hub
+      # 5. 🛠️ 关键修复：更新 Dockerfile 中的过时 Rust 版本
+      - name: Override Dockerfile with Latest Rust Version and Setup Build Directory
+        run: |
+          # 1. 创建构建所需的临时目录
+          mkdir -p ./.docker-build
+          
+          # 2. 复制官方 Dockerfile 和 entrypoint.sh 到临时目录
+          cp ./anki-official/docs/syncserver/Dockerfile ./.docker-build/Dockerfile
+          cp ./anki-official/docs/syncserver/entrypoint.sh ./.docker-build/entrypoint.sh
+          
+          # 3. 使用 sed 命令替换旧的 Rust 版本 (1.85.0) 为最新的稳定版本 1.87.0
+          # 这解决了编译失败 (exit code 101) 的问题
+          sed -i 's/FROM rust:1.85.0-alpine3.20/FROM rust:1.87.0-alpine3.20/' ./.docker-build/Dockerfile
+          
+          echo "Modified Dockerfile content (first 5 lines):"
+          head -n 5 ./.docker-build/Dockerfile
+
+      # 6. 🛠️ 关键修复：设置 Buildx 构建器以支持缓存导出
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+          
+      # 7. 登录 Docker Hub
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ env.DOCKER_USERNAME }}
           password: ${{ env.DOCKER_PASSWORD }}
-
-      # *** 新增步骤 ***
-      # 5.5 创建并使用 Buildx 构建器
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-      # *** 新增步骤结束 ***
-         
-      # 6. 构建并推送 Docker 镜像
+          
+      # 8. 构建并推送 Docker 镜像
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
-          # 构建上下文是官方仓库的目录
-          context: ./anki-official/docs/syncserver
-          # Dockerfile 路径在官方仓库的 docs/syncserver/
-          file: Dockerfile 
+          # 🛠️ 修复文件找不到问题：使用包含修改后文件的临时目录作为上下文
+          context: ./.docker-build 
+          # 指定 Dockerfile 路径
+          file: ./.docker-build/Dockerfile 
           push: true
           # 传递 ANKI_VERSION 参数给 Dockerfile
           build-args: ANKI_VERSION=${{ steps.get_tag.outputs.version }} 
@@ -91,6 +95,6 @@ jobs:
           tags: |
             ${{ env.DOCKER_REPO }}:${{ steps.get_tag.outputs.version }}
             ${{ env.DOCKER_REPO }}:latest
-          # 缓存设置
+          # 缓存设置，现在 Buildx 已设置，缓存应该能正常工作
           cache-from: type=gha
           cache-to: type=gha,mode=max
