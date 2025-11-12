@@ -63,6 +63,8 @@ services:
       # **重要：** 挂载数据卷，用于持久化您的卡片和媒体文件
       # 请替换 /path/to/anki_data 为您主机上的绝对路径
       - /path/to/anki_data:/ankisyncdir
+```
+
 
 ### 3. 启动服务
 
