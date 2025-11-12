@@ -1,10 +1,9 @@
 # Anki 自托管同步服务器 (Multi-Arch)
 
-[![Docker Build Status](https://github.com/YOUR_USERNAME/YOUR_REPO_NAME/actions/workflows/build-and-push.yml/badge.svg)](https://github.com/YOUR_USERNAME/YOUR_REPO_NAME/actions/workflows/build-and-push.yml)
-[![Docker Pulls](https://img.shields.io/docker/pulls/YOUR_USERNAME/anki-sync-server.svg)](https://hub.docker.com/r/YOUR_USERNAME/anki-sync-server)
+[![Docker Build Status](https://github.com/Maogxer/anki-sync-server/actions/workflows/build-and-push.yml/badge.svg)](https://github.com/Maogxer/anki-sync-server/actions/workflows/build-and-push.yml)
+[![Docker Pulls](https://img.shields.io/docker/pulls/maogxer/anki-sync-server.svg)](https://hub.docker.com/r/maogxer/anki-sync-server)
 [![License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](https://www.gnu.org/licenses/agpl-3.0.en.html)
 
-**【请务必将上面的 `YOUR_USERNAME` 和 `YOUR_REPO_NAME` 替换为您自己的信息】**
 
 ---
 
