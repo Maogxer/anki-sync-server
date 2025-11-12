@@ -1,98 +1,90 @@
-# .github/workflows/build-and-push.yml
+name: 🔄 Anki Sync Server Auto-Build and Push
 
-name: Anki Sync Server - Automated Tagged Build
-
+# 触发器：
 on:
-  # 每天凌晨 3 点 UTC 触发构建
-  schedule:
-    - cron: '0 3 * * *'
-  # 允许手动触发
+  # 允许在 GitHub 界面手动触发工作流
   workflow_dispatch:
-
-env:
-  # 替换为您的 Docker Hub 用户名
-  IMAGE_NAME: magxer/anki-sync-server 
-  # 使用 Secrets 赋值给环境变量，供后续 steps 使用
-  DOCKER_HUB_USERNAME: ${{ secrets.DOCKER_HUB_USERNAME }}
-  DOCKER_HUB_TOKEN: ${{ secrets.DOCKER_HUB_TOKEN }}
-
-jobs:
-  build-and-push:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
+  
+  # 定期运行 (Cron Job): 例如，每周一凌晨 03:00 UTC 运行，检查新版本
+  schedule:
+    - cron: '0 3 * * 1' 
+  
+  # 如果你想在每次提交到 main 分支时构建，可以添加：
+  # push:
+  #   branches: [ main ]
     
+jobs:
+  build_and_push:
+    runs-on: ubuntu-latest
+    
+    # 确保 secrets 已经配置，否则无法执行后续的登录和推送
+    environment:
+      name: DockerHub
+    
+    # 定义环境变量，从 Secrets 中获取敏感信息
+    env:
+      DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+      DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+      # 请将 YOUR_DOCKER_HUB_NAMESPACE 替换为你的 Docker Hub 用户名或组织名
+      DOCKER_REPO: maogxer/anki-sync-server 
+      
     steps:
-      # 0. 确保您的本地仓库被 Checkout，以便获取您自己的 Dockerfile
-      - name: Checkout Local Repository
+      # 1. 检出你的仓库 (可选，但推荐)
+      - name: Checkout your repository
         uses: actions/checkout@v4
-        
-      # =========================================================
-      # 1. 动态获取 Anki 官方仓库的最新稳定标签
-      # =========================================================
-      - name: Get Latest Anki Release Tag
+      
+      # 2. 安装 JQ，用于解析 JSON 响应
+      - name: Install dependencies (jq)
+        run: sudo apt-get update && sudo apt-get install -y jq
+      
+      # 3. 查找最新的 Anki 官方稳定版本 (Git Tag)
+      - name: Get latest Anki official release tag
         id: get_tag
         run: |
-          # 调用 GitHub API 获取 Anki 官方仓库的最新 Release Tag
-          LATEST_TAG=$(curl -s https://api.github.com/repos/ankitects/anki/releases/latest | jq -r .tag_name)
+          # 从 Anki 官方仓库获取最新的 Git Tag。
+          # 结果示例: "25.09" 或 "25.10.1"
+          ANKI_TAG=$(curl -s "https://api.github.com/repos/ankitects/anki/tags?per_page=1" | jq -r '.[0].name' | sed 's/^Anki //g')
           
-          if [ -z "$LATEST_TAG" ]; then
-            echo "Error: Could not retrieve latest tag from Anki repository."
+          if [ -z "$ANKI_TAG" ]; then
+            echo "::error::Failed to retrieve Anki tag."
             exit 1
           fi
           
-          echo "Latest Anki Tag found: $LATEST_TAG"
-          # 设置输出变量，供后续步骤使用
-          echo "ANKI_TAG=$LATEST_TAG" >> $GITHUB_OUTPUT
+          echo "Latest Anki Tag found: ${ANKI_TAG}"
           
-      # =========================================================
-      # 2. 克隆 Anki 源码仓库（使用获取到的最新标签）
-      # =========================================================
-      - name: Checkout Anki repository (Tagged Version)
+          # 将版本号作为输出，供后续步骤使用
+          echo "version=$ANKI_TAG" >> $GITHUB_OUTPUT
+      
+      # 4. 克隆 Anki 官方源码仓库
+      - name: Clone Anki Official Repository
         uses: actions/checkout@v4
         with:
           repository: ankitects/anki
-          ref: ${{ steps.get_tag.outputs.ANKI_TAG }}
-          path: anki-repo  # 官方源码克隆到 anki-repo 目录
-
-      # =========================================================
-      # 3. 复制您本地的 Dockerfile 到源码目录 (构建上下文)
-      # =========================================================
-      # 必须在 anki-repo 目录下执行构建，所以将 Dockerfile 复制过去
-      - name: Copy Dockerfile to context
-        # 假设您的 Dockerfile 位于您本地仓库的根目录
-        run: cp Dockerfile anki-repo/
-
-      # =========================================================
-      # 4. 设置 Docker Buildx 并登录
-      # =========================================================
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
+          ref: ${{ steps.get_tag.outputs.version }} # 使用最新的 Tag 检出特定版本
+          path: anki-official
+          
+      # 5. 登录 Docker Hub
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
-          username: ${{ env.DOCKER_HUB_USERNAME }}
-          password: ${{ env.DOCKER_HUB_TOKEN }}
-
-      # =========================================================
-      # 5. 构建并推送多平台镜像
-      # =========================================================
-      - name: Build and push multi-arch Docker image
+          username: ${{ env.DOCKER_USERNAME }}
+          password: ${{ env.DOCKER_PASSWORD }}
+          
+      # 6. 构建并推送 Docker 镜像
+      - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
-          # context: 设置为官方仓库代码的根目录，这是构建上下文
-          context: anki-repo 
-          
-          # file: Dockerfile 位于 anki-repo 目录的根部
-          file: anki-repo/docs/syncserver/Dockerfile
-          
-          platforms: linux/amd64,linux/arm64 
+          # 构建上下文是官方仓库的目录
+          context: ./anki-official 
+          # Dockerfile 路径在官方仓库的 docs/syncserver/
+          file: ./anki-official/docs/syncserver/Dockerfile 
           push: true
+          # 传递 ANKI_VERSION 参数给 Dockerfile
+          build-args: ANKI_VERSION=${{ steps.get_tag.outputs.version }} 
+          # 打上版本号标签和 latest 标签
           tags: |
-            ${{ env.IMAGE_NAME }}:latest
-            ${{ env.IMAGE_NAME }}:${{ steps.get_tag.outputs.ANKI_TAG }} 
-            
+            ${{ env.DOCKER_REPO }}:${{ steps.get_tag.outputs.version }}
+            ${{ env.DOCKER_REPO }}:latest
+          # 缓存设置
           cache-from: type=gha
           cache-to: type=gha,mode=max
