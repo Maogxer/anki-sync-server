@@ -77,9 +77,9 @@ jobs:
       - name: Build and push multi-arch Docker image
         uses: docker/build-push-action@v5
         with:
-          context: anki-repo/anki-sync-server
+          context: anki-repo/
           # Dockerfile 位于该子目录
-          file: anki-repo/anki-sync-server/Dockerfile
+          file: anki-repo/Dockerfile
           # 支持 amd64 和 arm64 架构
           platforms: linux/amd64,linux/arm64 
           push: true
