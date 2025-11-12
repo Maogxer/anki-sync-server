@@ -85,9 +85,9 @@ jobs:
           platforms: linux/amd64,linux/arm64 
           push: true
           tags: |
-            # 使用 latest 标签
+          # 使用 latest 标签
             ${{ env.IMAGE_NAME }}:latest
-            # 使用 Anki 的官方标签作为镜像版本号 (例如 myuser/anki-sync-server:2.1.66)
+          # 使用 Anki 的官方标签作为镜像版本号 (例如 myuser/anki-sync-server:2.1.66)
             ${{ env.IMAGE_NAME }}:${{ steps.get_tag.outputs.ANKI_TAG }} 
             
           cache-from: type=gha
