@@ -1,11 +1,7 @@
 name: 🔄 Anki Sync Server Auto-Build and Push
 
-# 触发器：
 on:
-  # 允许在 GitHub 界面手动触发工作流
   workflow_dispatch:
-  
-  # 定期运行 (Cron Job): 例如，每周一凌晨 03:00 UTC 运行，检查新版本
   schedule:
     - cron: '0 3 * * 1' 
     
@@ -13,32 +9,24 @@ jobs:
   build_and_push:
     runs-on: ubuntu-latest
     
-    # 定义环境变量，从 Secrets 中获取敏感信息
     env:
       DOCKER_USERNAME: ${{ secrets.DOCKER_HUB_USERNAME }}
       DOCKER_PASSWORD: ${{ secrets.DOCKER_HUB_TOKEN }}
-      # ⚠️ 替换为你自己的 Docker Hub 用户名或组织名
       DOCKER_REPO: maogxer/anki-sync-server 
       
     steps:
-      # 1. 检出你的仓库
       - name: Checkout your repository
         uses: actions/checkout@v4
       
-      # 2. 安装 JQ，用于解析 JSON 响应
       - name: Install dependencies (jq)
         run: sudo apt-get update && sudo apt-get install -y jq
       
-      # 3. 🛠️ 关键修复：查找最新的 Anki 官方稳定版本 (Git Tag)
-      #    该步骤采用了严格的 Shell 变量隔离，以解决 uv-mac-test 污染问题
-      - name: Get latest Anki official release tag
+      # 智能查找最新的稳定版本 (跳过测试Tag)
+      - name: Get latest stable Anki Tag
         id: get_tag
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # 使用内置 Actions Token 进行 API 认证
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-        
-          CLEAN_TAG=""
-          
           set -o pipefail
           
           echo "--- Fetching Anki Tags ---"
@@ -46,29 +34,39 @@ jobs:
           
           API_RESPONSE=$(curl -s -L \
             -H "Authorization: token $GH_TOKEN" \
-            "https://api.github.com/repos/ankitects/anki/tags?per_page=1")
+            "https://api.github.com/repos/ankitects/anki/tags?per_page=10")
           
           if [ $? -ne 0 ]; then
             echo "::error::Curl failed to retrieve GitHub API data."
             exit 1
           fi
 
-         
-          CLEAN_TAG=$(echo "$API_RESPONSE" | jq -r '.[0].name' | sed 's/^Anki //g')
           
-        
-          if [ -z "$CLEAN_TAG" ] || [ "$CLEAN_TAG" = "null" ] || [ "$CLEAN_TAG" = "uv-mac-test" ]; then
-            echo "::error::Retrieved tag is empty or invalid or contaminated."
-            echo "::error::Got: ${CLEAN_TAG}"
-            echo "API Response (partial): ${API_RESPONSE:0:200}"
+          STABLE_TAG=""
+          
+         
+          TAG_LIST=$(echo "$API_RESPONSE" | jq -r '.[].name')
+          
+          for TAG in $TAG_LIST; do
+            CLEAN_TAG=$(echo "$TAG" | sed 's/^Anki //g')
+            
+           
+            if [[ "$CLEAN_TAG" =~ ^[0-9]+\.[0-9]+\.?[0-9]*$ ]]; then
+                STABLE_TAG="$CLEAN_TAG"
+                break
+            fi
+          done
+
+          
+          if [ -z "$STABLE_TAG" ]; then
+            echo "::error::No stable Anki Tag found among the latest 10 tags."
             exit 1
           fi
 
-        
-          echo "Latest Anki Tag found: ${CLEAN_TAG}"
-          echo "version=$CLEAN_TAG" >> $GITHUB_OUTPUT
+          
+          echo "Latest STABLE Anki Tag found: ${STABLE_TAG}"
+          echo "version=$STABLE_TAG" >> $GITHUB_OUTPUT
       
-      # 4. 克隆 Anki 官方源码仓库
       - name: Clone Anki Official Repository
         uses: actions/checkout@v4
         with:
@@ -76,47 +74,39 @@ jobs:
           ref: ${{ steps.get_tag.outputs.version }}
           path: anki-official
           
-      # 5. 🛠️ 关键修复：更新 Dockerfile 中的过时 Rust 版本
       - name: Override Dockerfile with Latest Rust Version and Setup Build Directory
         run: |
+         
           mkdir -p ./.docker-build
           
-        
+          
           cp ./anki-official/docs/syncserver/Dockerfile ./.docker-build/Dockerfile
           cp ./anki-official/docs/syncserver/entrypoint.sh ./.docker-build/entrypoint.sh
           
-      
+          
           sed -i 's/FROM rust:1.85.0-alpine3.20/FROM rust:1.87.0-alpine3.20/' ./.docker-build/Dockerfile
           
           echo "Modified Dockerfile content (first 5 lines):"
           head -n 5 ./.docker-build/Dockerfile
 
-      # 6. 🛠️ 关键修复：设置 Buildx 构建器以支持缓存导出
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
           
-      # 7. 登录 Docker Hub
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ env.DOCKER_USERNAME }}
           password: ${{ env.DOCKER_PASSWORD }}
           
-      # 8. 构建并推送 Docker 镜像
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
-          # 使用包含修改后文件的临时目录作为上下文
           context: ./.docker-build 
-          # 指定 Dockerfile 路径
           file: ./.docker-build/Dockerfile 
           push: true
-          # 传递 ANKI_VERSION 参数给 Dockerfile
           build-args: ANKI_VERSION=${{ steps.get_tag.outputs.version }} 
-          # 打上版本号标签和 latest 标签
           tags: |
             ${{ env.DOCKER_REPO }}:${{ steps.get_tag.outputs.version }}
             ${{ env.DOCKER_REPO }}:latest
-          # 缓存设置，现在 Buildx 已设置，缓存应该能正常工作
           cache-from: type=gha
           cache-to: type=gha,mode=max
