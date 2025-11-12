@@ -80,7 +80,15 @@ jobs:
           username: ${{ env.DOCKER_USERNAME }}
           password: ${{ env.DOCKER_PASSWORD }}
           
-      # 8. 构建并推送 Docker 镜像
+      
+     ## ... (在步骤 7: 登录 Docker Hub 之后)
+      - name: Debug: Print Version Variables
+        run: |
+          echo "Expected ANKI Version: ${{ steps.get_tag.outputs.version }}"
+          echo "Full Tag String 1: ${{ env.DOCKER_REPO }}:${{ steps.get_tag.outputs.version }}"
+          echo "Full Tag String 2: ${{ env.DOCKER_REPO }}:latest"
+
+     # 8. 构建并推送 Docker 镜像
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
