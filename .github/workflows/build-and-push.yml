@@ -17,7 +17,7 @@ jobs:
     env:
       DOCKER_USERNAME: ${{ secrets.DOCKER_HUB_USERNAME }}
       DOCKER_PASSWORD: ${{ secrets.DOCKER_HUB_TOKEN }}
-      # ⚠️ 替换为你自己的 Docker Hub 用户名或组织名
+      # 替换为你自己的 Docker Hub 用户名或组织名
       DOCKER_REPO: maogxer/anki-sync-server 
       
     steps:
@@ -29,25 +29,39 @@ jobs:
       - name: Install dependencies (jq)
         run: sudo apt-get update && sudo apt-get install -y jq
       
-      # 3. 查找最新的 Anki 官方稳定版本 (Git Tag)
+      # 3. 🛠️ 关键修复：查找最新的 Anki 官方稳定版本 (Git Tag)
+      #    该步骤添加了授权和变量清除，以解决 uv-mac-test 错误
       - name: Get latest Anki official release tag
         id: get_tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # 使用内置 Actions Token 进行 API 认证
         run: |
+          
+          unset ANKI_TAG
           set -o pipefail
-          API_RESPONSE=$(curl -s -L "https://api.github.com/repos/ankitects/anki/tags?per_page=1")
-                
+          
+          echo "--- Fetching Anki Tags ---"
+          
+          
+          API_RESPONSE=$(curl -s -L \
+            -H "Authorization: token $GH_TOKEN" \
+            "https://api.github.com/repos/ankitects/anki/tags?per_page=1")
+          
           if [ $? -ne 0 ]; then
             echo "::error::Curl failed to retrieve GitHub API data."
             exit 1
           fi
 
+          
           ANKI_TAG=$(echo "$API_RESPONSE" | jq -r '.[0].name' | sed 's/^Anki //g')
-    
-          if [ -z "$ANKI_TAG" ] || [ "$ANKI_TAG" = "uv-mac-test" ]; then
-           echo "::error::Retrieved tag is empty or invalid. Got: ${ANKI_TAG}"
-           exit 1
+          
+          
+          if [ -z "$ANKI_TAG" ] || [ "$ANKI_TAG" = "null" ] || [ "$ANKI_TAG" = "uv-mac-test" ]; then
+            echo "::error::Retrieved tag is empty or invalid. Got: ${ANKI_TAG}"
+            exit 1
           fi
-   
+
+          
           echo "Latest Anki Tag found: ${ANKI_TAG}"
           echo "version=$ANKI_TAG" >> $GITHUB_OUTPUT
       
@@ -70,7 +84,6 @@ jobs:
           cp ./anki-official/docs/syncserver/entrypoint.sh ./.docker-build/entrypoint.sh
           
           # 3. 使用 sed 命令替换旧的 Rust 版本 (1.85.0) 为最新的稳定版本 1.87.0
-          # 这解决了编译失败 (exit code 101) 的问题
           sed -i 's/FROM rust:1.85.0-alpine3.20/FROM rust:1.87.0-alpine3.20/' ./.docker-build/Dockerfile
           
           echo "Modified Dockerfile content (first 5 lines):"
@@ -86,19 +99,12 @@ jobs:
         with:
           username: ${{ env.DOCKER_USERNAME }}
           password: ${{ env.DOCKER_PASSWORD }}
-     #
-     # ... (在步骤 7: 登录 Docker Hub 之后)
-      - name: Debug Print Version Variables
-        run: |
-         echo "Expected ANKI Version: ${{ steps.get_tag.outputs.version }}"
-         echo "Full Tag String 1: ${{ env.DOCKER_REPO }}:${{ steps.get_tag.outputs.version }}"
-         echo "Full Tag String 2: ${{ env.DOCKER_REPO }}:latest"
-
-     # 8. 构建并推送 Docker 镜像
+          
+      # 8. 构建并推送 Docker 镜像
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
-          # 🛠️ 修复文件找不到问题：使用包含修改后文件的临时目录作为上下文
+          # 使用包含修改后文件的临时目录作为上下文
           context: ./.docker-build 
           # 指定 Dockerfile 路径
           file: ./.docker-build/Dockerfile 
