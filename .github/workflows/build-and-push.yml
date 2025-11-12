@@ -11,9 +11,10 @@ on:
 
 env:
   # 替换为您的 Docker Hub 用户名
-  IMAGE_NAME: maogxer/anki-sync-server 
-  DOCKER_HUB_USERNAME: ${{ secrets.DOCKER_HUB_USERNAME }}
-  DOCKER_HUB_TOKEN: ${{ secrets.DOCKER_HUB_TOKEN }}
+  IMAGE_NAME: magxer/anki-sync-server 
+  # 使用 Secrets 赋值给环境变量，供后续 steps 使用
+  DOCKER_HUB_USERNAME: ${{ env.DOCKER_HUB_USERNAME }}
+  DOCKER_HUB_TOKEN: ${{ env.DOCKER_HUB_TOKEN }}
 
 jobs:
   build-and-push:
@@ -23,6 +24,10 @@ jobs:
       packages: write
     
     steps:
+      # 0. 确保您的本地仓库被 Checkout，以便获取您自己的 Dockerfile
+      - name: Checkout Local Repository
+        uses: actions/checkout@v4
+        
       # =========================================================
       # 1. 动态获取 Anki 官方仓库的最新稳定标签
       # =========================================================
@@ -30,10 +35,8 @@ jobs:
         id: get_tag
         run: |
           # 调用 GitHub API 获取 Anki 官方仓库的最新 Release Tag
-          # jq 用于解析 JSON 响应
           LATEST_TAG=$(curl -s https://api.github.com/repos/ankitects/anki/releases/latest | jq -r .tag_name)
           
-          # 检查是否成功获取标签
           if [ -z "$LATEST_TAG" ]; then
             echo "Error: Could not retrieve latest tag from Anki repository."
             exit 1
@@ -43,24 +46,26 @@ jobs:
           # 设置输出变量，供后续步骤使用
           echo "ANKI_TAG=$LATEST_TAG" >> $GITHUB_OUTPUT
           
-          # 设置环境变量，以便在 Dockerfile 中使用（如果需要）
-          echo "ANKI_TAG=$LATEST_TAG" >> $GITHUB_ENV
-
       # =========================================================
       # 2. 克隆 Anki 源码仓库（使用获取到的最新标签）
       # =========================================================
       - name: Checkout Anki repository (Tagged Version)
         uses: actions/checkout@v4
         with:
-          # 克隆官方仓库
           repository: ankitects/anki
-          # 使用上一步获取到的标签
           ref: ${{ steps.get_tag.outputs.ANKI_TAG }}
-          # 克隆到 anki-repo 目录
-          path: anki-repo
+          path: anki-repo  # 官方源码克隆到 anki-repo 目录
 
       # =========================================================
-      # 3. 设置 Docker Buildx 并登录
+      # 3. 复制您本地的 Dockerfile 到源码目录 (构建上下文)
+      # =========================================================
+      # 必须在 anki-repo 目录下执行构建，所以将 Dockerfile 复制过去
+      - name: Copy Dockerfile to context
+        # 假设您的 Dockerfile 位于您本地仓库的根目录
+        run: cp Dockerfile anki-repo/
+
+      # =========================================================
+      # 4. 设置 Docker Buildx 并登录
       # =========================================================
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -72,15 +77,17 @@ jobs:
           password: ${{ env.DOCKER_HUB_TOKEN }}
 
       # =========================================================
-      # 4. 构建并推送多平台镜像
+      # 5. 构建并推送多平台镜像
       # =========================================================
       - name: Build and push multi-arch Docker image
         uses: docker/build-push-action@v5
         with:
-          context: anki-repo/
-          # Dockerfile 位于该子目录
-          file: anki-repo/Dockerfile
-          # 支持 amd64 和 arm64 架构
+          # context: 设置为官方仓库代码的根目录，这是构建上下文
+          context: anki-repo 
+          
+          # file: Dockerfile 位于 anki-repo 目录的根部
+          file: anki-repo/Dockerfile 
+          
           platforms: linux/amd64,linux/arm64 
           push: true
           tags: |
