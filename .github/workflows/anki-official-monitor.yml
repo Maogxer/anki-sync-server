@@ -9,25 +9,22 @@ jobs:
   check_for_changes:
     runs-on: ubuntu-latest
     
-    # 🌟 关键修正 1: 授予写入权限
     permissions:
       contents: write 
 
     steps:
-      # 1. 检出 THIS repository (用于读取和写入上次的 SHA)
+      # 1. 修正：检出 THIS repository 到默认工作区根目录
       - name: Checkout THIS repository
         uses: actions/checkout@v4
-        with:
-          path: self-repo
-          
-      # 2. 克隆 Anki 官方仓库的最新状态
+        
+      # 2. 克隆 Anki 官方仓库到子目录
       - name: Clone Anki Official Repository
         uses: actions/checkout@v4
         with:
           repository: ankitects/anki
           path: anki-official
       
-      # 3. 检查文件变动并获取 SHA (逻辑不变)
+      # 3. 检查文件变动并获取 SHA
       - name: Check for Changes and Get Current SHA
         id: diff_check
         run: |
@@ -37,9 +34,10 @@ jobs:
           CURRENT_SHA=$(git -C anki-official rev-parse HEAD)
           echo "CURRENT_SHA=$CURRENT_SHA" >> $GITHUB_OUTPUT
           
+          # 修正路径：直接读取根目录下的文件
           LAST_SHA=""
-          if [ -f self-repo/last_anki_sha.txt ]; then
-              LAST_SHA=$(cat self-repo/last_anki_sha.txt)
+          if [ -f last_anki_sha.txt ]; then
+              LAST_SHA=$(cat last_anki_sha.txt)
           fi
           
           echo "上次 SHA: $LAST_SHA"
@@ -107,8 +105,8 @@ jobs:
       # 5. 更新 SHA 文件
       - name: Update Last Known SHA
         run: |
-          # 文件需要在 self-repo 工作区创建
-          echo "${{ steps.diff_check.outputs.CURRENT_SHA }}" > self-repo/last_anki_sha.txt
+          # 修正路径：直接在根目录创建文件
+          echo "${{ steps.diff_check.outputs.CURRENT_SHA }}" > last_anki_sha.txt
           
       # 6. 提交 SHA 文件到你的仓库
       - name: Commit SHA Update
@@ -116,5 +114,4 @@ jobs:
         with:
           commit_message: 'CI: Update last known Anki SHA for monitoring'
           file_pattern: 'last_anki_sha.txt'
-          # 🌟 关键修正：确保 action 在 self-repo 路径上操作
-          working-directory: self-repo
+          # 移除 working-directory
