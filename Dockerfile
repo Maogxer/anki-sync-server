@@ -12,8 +12,9 @@ WORKDIR /app
 
 # 编译 Anki Sync Server
 # 注意：ankitects/anki 仓库中同步服务器的源码在 rslib/syncv3/
-# 但 Cargo.toml 文件位于 /app 根目录。
-RUN cargo build --release --locked --bin anki-sync-server --manifest-path Cargo.toml
+# 最终修正：Manifest 文件位于 rslib/syncv3/Cargo.toml
+# 我们需要显式告诉 cargo 去哪里找。
+RUN cargo build --release --locked --bin anki-sync-server --manifest-path rslib/sync/Cargo.toml
 
 # 最终运行镜像
 FROM debian:bookworm-slim
@@ -34,4 +35,4 @@ EXPOSE 8080
 CMD ["anki-sync-server"]
 
 # 示例环境变量定义（请在 Docker Compose 或 k8s 中设置）
-# ENV SYNC_USER1="user:password"
+# ENV SYNC_USER1="user:password"# ENV SYNC_USER1="user:password"
