@@ -31,6 +31,7 @@ jobs:
           
           echo "--- Fetching Anki Tags ---"
           
+          STABLE_TAG=""
           
           API_RESPONSE=$(curl -s -L \
             -H "Authorization: token $GH_TOKEN" \
@@ -41,29 +42,22 @@ jobs:
             exit 1
           fi
 
-          
-          STABLE_TAG=""
-          
-         
           TAG_LIST=$(echo "$API_RESPONSE" | jq -r '.[].name')
           
           for TAG in $TAG_LIST; do
             CLEAN_TAG=$(echo "$TAG" | sed 's/^Anki //g')
             
-           
             if [[ "$CLEAN_TAG" =~ ^[0-9]+\.[0-9]+\.?[0-9]*$ ]]; then
                 STABLE_TAG="$CLEAN_TAG"
                 break
             fi
           done
 
-          
           if [ -z "$STABLE_TAG" ]; then
             echo "::error::No stable Anki Tag found among the latest 10 tags."
             exit 1
           fi
 
-          
           echo "Latest STABLE Anki Tag found: ${STABLE_TAG}"
           echo "version=$STABLE_TAG" >> $GITHUB_OUTPUT
       
@@ -76,9 +70,7 @@ jobs:
           
       - name: Override Dockerfile with Latest Rust Version and Setup Build Directory
         run: |
-         
           mkdir -p ./.docker-build
-          
           
           cp ./anki-official/docs/syncserver/Dockerfile ./.docker-build/Dockerfile
           cp ./anki-official/docs/syncserver/entrypoint.sh ./.docker-build/entrypoint.sh
@@ -89,6 +81,10 @@ jobs:
           echo "Modified Dockerfile content (first 5 lines):"
           head -n 5 ./.docker-build/Dockerfile
 
+      # 🌟 新增：设置 QEMU 以启用交叉编译
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
           
@@ -98,12 +94,15 @@ jobs:
           username: ${{ env.DOCKER_USERNAME }}
           password: ${{ env.DOCKER_PASSWORD }}
           
-      - name: Build and push Docker image
+      # 多平台构建与推送
+      - name: Build and push Multi-Arch Docker image
         uses: docker/build-push-action@v5
         with:
           context: ./.docker-build 
           file: ./.docker-build/Dockerfile 
           push: true
+          # 🌟 关键：指定要构建的两个平台
+          platforms: linux/amd64,linux/arm64 
           build-args: ANKI_VERSION=${{ steps.get_tag.outputs.version }} 
           tags: |
             ${{ env.DOCKER_REPO }}:${{ steps.get_tag.outputs.version }}
