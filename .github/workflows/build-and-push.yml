@@ -81,9 +81,9 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           # 构建上下文是官方仓库的目录
-          context: ./anki-official 
+          context: ./anki-official/docs/syncserver
           # Dockerfile 路径在官方仓库的 docs/syncserver/
-          file: ./anki-official/docs/syncserver/Dockerfile 
+          file: Dockerfile 
           push: true
           # 传递 ANKI_VERSION 参数给 Dockerfile
           build-args: ANKI_VERSION=${{ steps.get_tag.outputs.version }} 
