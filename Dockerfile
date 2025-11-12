@@ -4,44 +4,40 @@
 FROM rust:latest AS builder
 
 # 安装 Protobuf 编译器，Anki Sync Server 构建所需
-# 对于 Debian/Ubuntu 系：
-RUN apt-get update && apt-get install -y protobuf-compiler
+RUN apt-get update && apt-get install -y protobuf-compiler && rm -rf /var/lib/apt/lists/*
 
-# 设置工作目录
+# 设置容器内的构建工作目录。
+# 所有的源码都将复制到这个目录中。
 WORKDIR /app
 
-# 克隆 Anki 官方仓库（这里只克隆同步服务器部分，减少不必要的文件）
-# 注意：这里我们克隆整个仓库，然后在构建脚本中切换到 sync_server 子目录
-# 也可以只克隆 sync_server 子目录，但可能会有版本问题，这里更通用
-RUN git clone https://github.com/ankitects/anki.git .
+# **注意：我们移除 RUN git clone ...**
+# 这里的 ADD/COPY 动作由 Docker Buildx 自动执行，
+# 它将 GitHub Actions 提供的 'anki-repo' 目录内容复制到容器的 /app 目录。
 
-# 构建 Anki Sync Server
-# 使用 --locked 确保使用 Cargo.lock 中的精确依赖版本
-# --release 构建优化版本
-# --bin anki-sync-server 指定要构建的二进制文件
-# --target 会由 buildx 自动设置
-# RUN cargo build --release --locked --bin anki-sync-server --target ${TARGETPLATFORM}
+# 由于 ankitects/anki 仓库的 Dockerfile 并不在根目录，我们需要手动切换到同步服务器的源码目录
+# 但更可靠的方法是直接构建整个仓库，并指定二进制文件路径。
+
+# 编译 Anki Sync Server
+# 注意：ankitects/anki 仓库中同步服务器的源码在 rslib/syncv3/
+# 但二进制文件名称是 anki-sync-server。
+# 这里依赖 Cargo 识别根目录下的 Cargo.toml
+RUN cargo build --release --locked --bin anki-sync-server
 
 # 最终运行镜像
 FROM debian:bookworm-slim
 
-# 安装 Protobuf 运行时库
+# 安装 Protobuf 运行时库和证书
 RUN apt-get update && apt-get install -y libprotobuf-dev ca-certificates && rm -rf /var/lib/apt/lists/*
 
 # 设置工作目录
 WORKDIR /ankisyncdir
 
 # 从构建阶段复制编译好的二进制文件
-# 注意：这里假设构建出的可执行文件名为 anki-sync-server，位于 target/release/
-# ✅ 正确路径：使用 WORKDIR /anki-repo 来找到编译的二进制文件
-COPY --from=builder /anki-repo/target/release/anki-sync-server /usr/local/bin/anki-sync-server
+# **这是最终修正：使用 /app 路径**
+COPY --from=builder /app/target/release/anki-sync-server /usr/local/bin/anki-sync-server
 
 # 暴露端口
 EXPOSE 8080
 
 # 默认启动命令
-# 通过环境变量传递用户凭证
 CMD ["anki-sync-server"]
-
-# 示例环境变量定义（请在 Docker Compose 或 k8s 中设置）
-# ENV SYNC_USER1="user:password"
