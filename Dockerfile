@@ -11,10 +11,10 @@ RUN apt-get update && apt-get install -y protobuf-compiler && rm -rf /var/lib/ap
 WORKDIR /app
 
 # 编译 Anki Sync Server
-# 注意：ankitects/anki 仓库中同步服务器的源码在 rslib/syncv3/
-# 最终修正：Manifest 文件位于 rslib/syncv3/Cargo.toml
-# 我们需要显式告诉 cargo 去哪里找。
-RUN cargo build --release --locked --bin anki-sync-server --manifest-path rslib/syncv3/Cargo.toml
+# 最终修正：回到 Workspace 根目录的 Cargo.toml（即 /app/Cargo.toml）
+# 使用 -p 或 --package 参数指定要编译的包名 anki-sync-server
+# 注意：我们必须移除 --manifest-path，让它默认查找 /app/Cargo.toml
+RUN cargo build --release --locked --package anki-sync-server
 
 # 最终运行镜像
 FROM debian:bookworm-slim
