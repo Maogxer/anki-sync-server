@@ -18,7 +18,7 @@ jobs:
       DOCKER_USERNAME: ${{ secrets.DOCKER_HUB_USERNAME }}
       DOCKER_PASSWORD: ${{ secrets.DOCKER_HUB_TOKEN }}
       # ⚠️ 替换为你自己的 Docker Hub 用户名或组织名
-      DOCKER_REPO: YOUR_DOCKER_HUB_NAMESPACE/anki-sync-server 
+      DOCKER_REPO: maogxer/anki-sync-server 
       
     steps:
       # 1. 检出你的仓库
