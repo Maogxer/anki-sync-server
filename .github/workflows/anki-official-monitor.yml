@@ -8,6 +8,10 @@ on:
 jobs:
   check_for_changes:
     runs-on: ubuntu-latest
+    
+    # 🌟 关键修正 1: 授予写入权限
+    permissions:
+      contents: write 
 
     steps:
       # 1. 检出 THIS repository (用于读取和写入上次的 SHA)
@@ -23,19 +27,16 @@ jobs:
           repository: ankitects/anki
           path: anki-official
       
-      # 3. 检查文件变动并获取 SHA
+      # 3. 检查文件变动并获取 SHA (逻辑不变)
       - name: Check for Changes and Get Current SHA
         id: diff_check
         run: |
-          # 定义关键文件路径
           FILE_PATH_DOCKER="anki-official/docs/syncserver/Dockerfile"
           FILE_PATH_ENTRYPOINT="anki-official/docs/syncserver/entrypoint.sh"
           
-          # 获取当前 Anki 仓库的最新 commit SHA
           CURRENT_SHA=$(git -C anki-official rev-parse HEAD)
           echo "CURRENT_SHA=$CURRENT_SHA" >> $GITHUB_OUTPUT
           
-          # 尝试读取上次保存的 SHA
           LAST_SHA=""
           if [ -f self-repo/last_anki_sha.txt ]; then
               LAST_SHA=$(cat self-repo/last_anki_sha.txt)
@@ -44,15 +45,11 @@ jobs:
           echo "上次 SHA: $LAST_SHA"
           echo "本次 SHA: $CURRENT_SHA"
 
-          # 如果上次 SHA 不存在或与当前 SHA 相同，则无需通知
           if [ -z "$LAST_SHA" ] || [ "$LAST_SHA" = "$CURRENT_SHA" ]; then
               echo "NOTIFY=false" >> $GITHUB_OUTPUT
               exit 0
           fi
 
-          # *** 比较差异：文件内容或结构变动 ***
-          
-          # 检查 Dockerfile 和 entrypoint.sh 的内容差异
           DIFF_DOCKER=$(git -C anki-official diff $LAST_SHA $CURRENT_SHA -- $FILE_PATH_DOCKER)
           DIFF_ENTRYPOINT=$(git -C anki-official diff $LAST_SHA $CURRENT_SHA -- $FILE_PATH_ENTRYPOINT)
 
@@ -64,7 +61,6 @@ jobs:
               DIFF_BODY+="- [entrypoint.sh] 发生内容变动。\n"
           fi
           
-          # 检查文件是否被删除/移动 (结构变动)
           if [ ! -f "$FILE_PATH_DOCKER" ] || [ ! -f "$FILE_PATH_ENTRYPOINT" ]; then
               DIFF_BODY+="- [结构变动] 关键文件缺失或目录已移动。\n"
           fi
@@ -77,7 +73,7 @@ jobs:
           fi
 
 
-      # 4. 创建 Issue 通知
+      # 4. 创建 Issue 通知 (不变)
       - name: Create Issue Notification
         if: steps.diff_check.outputs.NOTIFY == 'true'
         uses: actions/github-script@v6
@@ -108,11 +104,11 @@ jobs:
               body: issueBody
             });
 
-      # 5. 更新 SHA 文件（无论是否通知，都必须更新）
+      # 5. 更新 SHA 文件
       - name: Update Last Known SHA
         run: |
-          # 写入最新的 SHA 到文件
-          echo "${{ steps.diff_check.outputs.CURRENT_SHA }}" > last_anki_sha.txt
+          # 文件需要在 self-repo 工作区创建
+          echo "${{ steps.diff_check.outputs.CURRENT_SHA }}" > self-repo/last_anki_sha.txt
           
       # 6. 提交 SHA 文件到你的仓库
       - name: Commit SHA Update
@@ -120,4 +116,5 @@ jobs:
         with:
           commit_message: 'CI: Update last known Anki SHA for monitoring'
           file_pattern: 'last_anki_sha.txt'
-          repository: self-repo # 提交到自己的仓库
+          # 🌟 关键修正：确保 action 在 self-repo 路径上操作
+          working-directory: self-repo
