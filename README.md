@@ -72,6 +72,8 @@ services:
 
 ```bash
 docker compose up -d
+```
+
 
 服务启动后，您的同步服务器即可通过 `http://[您的服务器IP]:8080` 访问。
 
