@@ -1,0 +1,70 @@
+# .github/workflows/build-and-push.yml
+
+name: Build and Push Anki Sync Server Docker Image
+
+on:
+  # 当官方 Anki 仓库的 main 分支有新的提交时触发
+  # 注意：这需要配置 GitHub Actions 的 Webhook 或轮询
+  # 更简单的方式是：在您自己的仓库 main 分支有新提交时触发
+  push:
+    branches:
+      - main
+    paths:
+      - 'Dockerfile' # 只有 Dockerfile 更改时才构建
+      - '.github/workflows/build-and-push.yml'
+
+  # 或者，定时触发构建 (例如每天凌晨 3 点)
+  schedule:
+    - cron: '0 3 * * *'
+
+  # 也可以手动触发
+  workflow_dispatch:
+
+env:
+  # Docker 镜像名称
+  IMAGE_NAME: your_dockerhub_username/anki-sync-server # 替换为你的 Docker Hub 用户名
+  DOCKER_HUB_USERNAME: ${{ secrets.DOCKER_HUB_USERNAME }}
+  DOCKER_HUB_TOKEN: ${{ secrets.DOCKER_HUB_TOKEN }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write # 如果推送到 GitHub Container Registry
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          repository: ankitects/anki # 克隆 Anki 官方仓库
+          ref: main # 或 '2.1.xx' 具体的 Anki 稳定版本标签
+          path: anki-repo
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ env.DOCKER_HUB_USERNAME }}
+          password: ${{ env.DOCKER_HUB_TOKEN }}
+        # 如果推送到 GitHub Container Registry，使用 ghcr.io
+        # registry: ghcr.io
+        # username: ${{ github.actor }}
+        # password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push multi-arch Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: anki-repo/anki-sync-server # Dockerfile 的路径相对于克隆的仓库根目录
+          file: anki-repo/anki-sync-server/Dockerfile # Dockerfile 的实际路径
+          platforms: linux/amd64,linux/arm64 # 支持的架构
+          push: true # 推送到 Docker Hub 或 GCR
+          tags: |
+            ${{ env.IMAGE_NAME }}:latest
+            ${{ env.IMAGE_NAME }}:v${{ github.run_number }} # 例如：myuser/anki-sync-server:v123
+            # 你也可以从 Anki 仓库的标签中提取版本号
+            # ${{ env.IMAGE_NAME }}:${{ steps.get-anki-version.outputs.version }} # 需要一个额外步骤提取版本号
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
