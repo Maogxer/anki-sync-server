@@ -17,7 +17,7 @@ jobs:
     env:
       DOCKER_USERNAME: ${{ secrets.DOCKER_HUB_USERNAME }}
       DOCKER_PASSWORD: ${{ secrets.DOCKER_HUB_TOKEN }}
-      # 替换为你自己的 Docker Hub 用户名或组织名
+      # ⚠️ 替换为你自己的 Docker Hub 用户名或组织名
       DOCKER_REPO: maogxer/anki-sync-server 
       
     steps:
@@ -30,19 +30,20 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y jq
       
       # 3. 🛠️ 关键修复：查找最新的 Anki 官方稳定版本 (Git Tag)
-      #    该步骤添加了授权和变量清除，以解决 uv-mac-test 错误
+      #    该步骤采用了严格的 Shell 变量隔离，以解决 uv-mac-test 污染问题
       - name: Get latest Anki official release tag
         id: get_tag
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # 使用内置 Actions Token 进行 API 认证
         run: |
+        # 🌟 关键修复：确保 Bash 变量隔离
+          CLEAN_TAG=""
           
-          unset ANKI_TAG
           set -o pipefail
           
           echo "--- Fetching Anki Tags ---"
           
-          
+          # 1. 使用授权的 Header 请求 API，避免速率限制
           API_RESPONSE=$(curl -s -L \
             -H "Authorization: token $GH_TOKEN" \
             "https://api.github.com/repos/ankitects/anki/tags?per_page=1")
@@ -52,18 +53,20 @@ jobs:
             exit 1
           fi
 
+          # 2. 解析并清理 Tag
+          CLEAN_TAG=$(echo "$API_RESPONSE" | jq -r '.[0].name' | sed 's/^Anki //g')
           
-          ANKI_TAG=$(echo "$API_RESPONSE" | jq -r '.[0].name' | sed 's/^Anki //g')
-          
-          
-          if [ -z "$ANKI_TAG" ] || [ "$ANKI_TAG" = "null" ] || [ "$ANKI_TAG" = "uv-mac-test" ]; then
-            echo "::error::Retrieved tag is empty or invalid. Got: ${ANKI_TAG}"
+          # 3. 严格检查 Tag 是否有效
+          if [ -z "$CLEAN_TAG" ] || [ "$CLEAN_TAG" = "null" ] || [ "$CLEAN_TAG" = "uv-mac-test" ]; then
+            echo "::error::Retrieved tag is empty or invalid or contaminated."
+            echo "::error::Got: ${CLEAN_TAG}"
+            echo "API Response (partial): ${API_RESPONSE:0:200}"
             exit 1
           fi
 
-          
-          echo "Latest Anki Tag found: ${ANKI_TAG}"
-          echo "version=$ANKI_TAG" >> $GITHUB_OUTPUT
+          # 4. 成功赋值给 Actions Output
+          echo "Latest Anki Tag found: ${CLEAN_TAG}"
+          echo "version=$CLEAN_TAG" >> $GITHUB_OUTPUT
       
       # 4. 克隆 Anki 官方源码仓库
       - name: Clone Anki Official Repository
@@ -76,14 +79,14 @@ jobs:
       # 5. 🛠️ 关键修复：更新 Dockerfile 中的过时 Rust 版本
       - name: Override Dockerfile with Latest Rust Version and Setup Build Directory
         run: |
-          
+        # 1. 创建构建所需的临时目录
           mkdir -p ./.docker-build
           
-          
+        # 2. 复制官方 Dockerfile 和 entrypoint.sh 到临时目录
           cp ./anki-official/docs/syncserver/Dockerfile ./.docker-build/Dockerfile
           cp ./anki-official/docs/syncserver/entrypoint.sh ./.docker-build/entrypoint.sh
           
-          
+       # 3. 使用 sed 命令替换旧的 Rust 版本 (1.85.0) 为最新的稳定版本 1.87.0
           sed -i 's/FROM rust:1.85.0-alpine3.20/FROM rust:1.87.0-alpine3.20/' ./.docker-build/Dockerfile
           
           echo "Modified Dockerfile content (first 5 lines):"
