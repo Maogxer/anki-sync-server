@@ -77,7 +77,7 @@ jobs:
       - name: Build and push multi-arch Docker image
         uses: docker/build-push-action@v5
         with:
-          # Dockerfile context 是 anki-sync-server 所在的子目录
+        # Dockerfile context 是 anki-sync-server 所在的子目录
           context: anki-repo/anki-sync-server
           # Dockerfile 位于该子目录
           file: anki-repo/anki-sync-server/Dockerfile
