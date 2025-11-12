@@ -33,14 +33,21 @@ jobs:
       - name: Get latest Anki official release tag
         id: get_tag
         run: |
-          # 从 Anki 官方仓库获取最新的 Git Tag
-          ANKI_TAG=$(curl -s "https://api.github.com/repos/ankitects/anki/tags?per_page=1" | jq -r '.[0].name' | sed 's/^Anki //g')
-          
-          if [ -z "$ANKI_TAG" ]; then
-            echo "::error::Failed to retrieve Anki tag."
+          set -o pipefail
+          API_RESPONSE=$(curl -s -L "https://api.github.com/repos/ankitects/anki/tags?per_page=1")
+                
+          if [ $? -ne 0 ]; then
+            echo "::error::Curl failed to retrieve GitHub API data."
             exit 1
           fi
-          
+
+          ANKI_TAG=$(echo "$API_RESPONSE" | jq -r '.[0].name' | sed 's/^Anki //g')
+    
+          if [ -z "$ANKI_TAG" ] || [ "$ANKI_TAG" = "uv-mac-test" ]; then
+           echo "::error::Retrieved tag is empty or invalid. Got: ${ANKI_TAG}"
+           exit 1
+          fi
+   
           echo "Latest Anki Tag found: ${ANKI_TAG}"
           echo "version=$ANKI_TAG" >> $GITHUB_OUTPUT
       
