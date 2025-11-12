@@ -13,8 +13,8 @@ env:
   # 替换为您的 Docker Hub 用户名
   IMAGE_NAME: magxer/anki-sync-server 
   # 使用 Secrets 赋值给环境变量，供后续 steps 使用
-  DOCKER_HUB_USERNAME: ${{ env.DOCKER_HUB_USERNAME }}
-  DOCKER_HUB_TOKEN: ${{ env.DOCKER_HUB_TOKEN }}
+  DOCKER_HUB_USERNAME: ${{ secrets.DOCKER_HUB_USERNAME }}
+  DOCKER_HUB_TOKEN: ${{ secrets.DOCKER_HUB_TOKEN }}
 
 jobs:
   build-and-push:
