@@ -40,8 +40,7 @@ version: '3.8'
 
 services:
   anki-sync-server:
-    # 替换为您自己的镜像名称
-    image: YOUR_USERNAME/anki-sync-server:latest 
+    image: maogxer/anki-sync-server:latest 
     container_name: anki-sync-server
     
     # 意外退出时自动重启
@@ -94,7 +93,6 @@ docker compose up -d
 * 进入 **设置 (Settings)** > **高级设置 (Advanced)**。
 * 找到 **自定义同步服务器 (Custom Sync Server)**。
 * **服务器 URL：** `http://[您的服务器IP]:8080/`
-* **媒体 URL：** `http://[您的服务器IP]:8080/msync/`
 * 返回同步界面，输入您在 Docker 环境中设置的用户名和密码。
 
 ### ⚠️ **重要提示：解决同步中断问题**
