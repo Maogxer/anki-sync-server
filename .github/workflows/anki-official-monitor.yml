@@ -1,7 +1,6 @@
 name: 🚨 Anki Official Files Monitor
 
 on:
-  # 每天运行一次，检查变动
   schedule:
     - cron: '30 4 * * *'
   workflow_dispatch:
@@ -11,65 +10,95 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # 1. 检出 THIS repository (用于读取和写入上次的 SHA)
       - name: Checkout THIS repository
         uses: actions/checkout@v4
-        
-      # 1. 克隆 Anki 官方仓库的最新状态
+        with:
+          path: self-repo
+          
+      # 2. 克隆 Anki 官方仓库的最新状态
       - name: Clone Anki Official Repository
         uses: actions/checkout@v4
         with:
           repository: ankitects/anki
           path: anki-official
-          # 使用 GITHUB_TOKEN，避免速率限制
-
-      # 2. 检查关键文件的变动
-      - name: Check for Changes in Critical Files
+      
+      # 3. 检查文件变动并获取 SHA
+      - name: Check for Changes and Get Current SHA
         id: diff_check
         run: |
-          CRITICAL_FILES=(
-              "anki-official/docs/syncserver/Dockerfile"
-              "anki-official/docs/syncserver/entrypoint.sh"
-          )
+          # 定义关键文件路径
+          FILE_PATH_DOCKER="anki-official/docs/syncserver/Dockerfile"
+          FILE_PATH_ENTRYPOINT="anki-official/docs/syncserver/entrypoint.sh"
           
-          MISSING_FILES=()
-          for file in "${CRITICAL_FILES[@]}"; do
-              if [ ! -f "$file" ]; then
-                  MISSING_FILES+=("$(basename "$file")") # 只获取文件名
-              fi
-          done
+          # 获取当前 Anki 仓库的最新 commit SHA
+          CURRENT_SHA=$(git -C anki-official rev-parse HEAD)
+          echo "CURRENT_SHA=$CURRENT_SHA" >> $GITHUB_OUTPUT
+          
+          # 尝试读取上次保存的 SHA
+          LAST_SHA=""
+          if [ -f self-repo/last_anki_sha.txt ]; then
+              LAST_SHA=$(cat self-repo/last_anki_sha.txt)
+          fi
+          
+          echo "上次 SHA: $LAST_SHA"
+          echo "本次 SHA: $CURRENT_SHA"
 
-          if [ ${#MISSING_FILES[@]} -ne 0 ]; then
-              echo "MISSING_FILES_LIST=${MISSING_FILES[*]}" >> $GITHUB_OUTPUT
-              echo "::warning::Critical files are missing or moved!"
+          # 如果上次 SHA 不存在或与当前 SHA 相同，则无需通知
+          if [ -z "$LAST_SHA" ] || [ "$LAST_SHA" = "$CURRENT_SHA" ]; then
+              echo "NOTIFY=false" >> $GITHUB_OUTPUT
+              exit 0
+          fi
+
+          # *** 比较差异：文件内容或结构变动 ***
+          
+          # 检查 Dockerfile 和 entrypoint.sh 的内容差异
+          DIFF_DOCKER=$(git -C anki-official diff $LAST_SHA $CURRENT_SHA -- $FILE_PATH_DOCKER)
+          DIFF_ENTRYPOINT=$(git -C anki-official diff $LAST_SHA $CURRENT_SHA -- $FILE_PATH_ENTRYPOINT)
+
+          DIFF_BODY=""
+          if [ -n "$DIFF_DOCKER" ]; then
+              DIFF_BODY+="- [Dockerfile] 发生内容变动。\n"
+          fi
+          if [ -n "$DIFF_ENTRYPOINT" ]; then
+              DIFF_BODY+="- [entrypoint.sh] 发生内容变动。\n"
+          fi
+          
+          # 检查文件是否被删除/移动 (结构变动)
+          if [ ! -f "$FILE_PATH_DOCKER" ] || [ ! -f "$FILE_PATH_ENTRYPOINT" ]; then
+              DIFF_BODY+="- [结构变动] 关键文件缺失或目录已移动。\n"
+          fi
+
+          if [ -n "$DIFF_BODY" ]; then
+              echo "NOTIFICATION_BODY=$DIFF_BODY" >> $GITHUB_OUTPUT
               echo "NOTIFY=true" >> $GITHUB_OUTPUT
           else
               echo "NOTIFY=false" >> $GITHUB_OUTPUT
           fi
 
 
-      # 3. 创建 GitHub Issue 通知
+      # 4. 创建 Issue 通知
       - name: Create Issue Notification
         if: steps.diff_check.outputs.NOTIFY == 'true'
         uses: actions/github-script@v6
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const missingFiles = "${{ steps.diff_check.outputs.MISSING_FILES_LIST }}";
+            const notificationBody = "${{ steps.diff_check.outputs.NOTIFICATION_BODY }}";
+            const currentSha = "${{ steps.diff_check.outputs.CURRENT_SHA }}";
             const repoOwner = context.repo.owner;
-            const repoName = context.repo.repo;
             
-            const issueTitle = `🚨 Anki 官方 SyncServer 文件结构变动！`;
+            const issueTitle = `🚨 Anki 官方配置变动：Dockerfile/Entrypoint 内容已更新`;
             const issueBody = `
-            @${repoOwner}，您的 Anki 同步服务器构建依赖的官方文件结构可能已改变。
-            
-            请注意：
-            - 构建流程依赖的文件路径可能已失效。
-            - 您的 \`sync-server-ci.yml\` 文件中的文件复制步骤（\`cp\`）可能需要更新。
-            
-            **缺失或已移动的文件：**
-            ${missingFiles.split(' ').map(f => `- ${f}`).join('\n')}
-            
-            请检查 Anki 官方仓库：https://github.com/ankitects/anki
+            @${repoOwner}，您的 Anki 同步服务器构建依赖的官方配置已发生变动。请检查是否需要更新 \`sync-server-ci.yml\` 中的依赖项。
+
+            **变动摘要：**
+            ${notificationBody}
+
+            **Git Diff 链接 (本次变动):**
+            https://github.com/ankitects/anki/compare/${{ steps.diff_check.outputs.LAST_SHA }}..${currentSha}
+
+            本次检查的 Anki Commit SHA: \`${currentSha}\`
             `;
 
             await github.rest.issues.create({
@@ -78,3 +107,17 @@ jobs:
               title: issueTitle,
               body: issueBody
             });
+
+      # 5. 更新 SHA 文件（无论是否通知，都必须更新）
+      - name: Update Last Known SHA
+        run: |
+          # 写入最新的 SHA 到文件
+          echo "${{ steps.diff_check.outputs.CURRENT_SHA }}" > last_anki_sha.txt
+          
+      # 6. 提交 SHA 文件到你的仓库
+      - name: Commit SHA Update
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: 'CI: Update last known Anki SHA for monitoring'
+          file_pattern: 'last_anki_sha.txt'
+          repository: self-repo # 提交到自己的仓库
