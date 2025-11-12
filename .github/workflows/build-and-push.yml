@@ -76,14 +76,14 @@ jobs:
       # 5. 🛠️ 关键修复：更新 Dockerfile 中的过时 Rust 版本
       - name: Override Dockerfile with Latest Rust Version and Setup Build Directory
         run: |
-          # 1. 创建构建所需的临时目录
+          
           mkdir -p ./.docker-build
           
-          # 2. 复制官方 Dockerfile 和 entrypoint.sh 到临时目录
+          
           cp ./anki-official/docs/syncserver/Dockerfile ./.docker-build/Dockerfile
           cp ./anki-official/docs/syncserver/entrypoint.sh ./.docker-build/entrypoint.sh
           
-          # 3. 使用 sed 命令替换旧的 Rust 版本 (1.85.0) 为最新的稳定版本 1.87.0
+          
           sed -i 's/FROM rust:1.85.0-alpine3.20/FROM rust:1.87.0-alpine3.20/' ./.docker-build/Dockerfile
           
           echo "Modified Dockerfile content (first 5 lines):"
