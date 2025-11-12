@@ -36,8 +36,6 @@
 在您的服务器上创建一个名为 `docker-compose.yml` 的文件：
 
 ```yaml
-version: '3.8'
-
 services:
   anki-sync-server:
     image: maogxer/anki-sync-server:latest 
