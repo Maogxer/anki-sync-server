@@ -1,0 +1,80 @@
+name: 🚨 Anki Official Files Monitor
+
+on:
+  # 每天运行一次，检查变动
+  schedule:
+    - cron: '30 4 * * *'
+  workflow_dispatch:
+
+jobs:
+  check_for_changes:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout THIS repository
+        uses: actions/checkout@v4
+        
+      # 1. 克隆 Anki 官方仓库的最新状态
+      - name: Clone Anki Official Repository
+        uses: actions/checkout@v4
+        with:
+          repository: ankitects/anki
+          path: anki-official
+          # 使用 GITHUB_TOKEN，避免速率限制
+
+      # 2. 检查关键文件的变动
+      - name: Check for Changes in Critical Files
+        id: diff_check
+        run: |
+          CRITICAL_FILES=(
+              "anki-official/docs/syncserver/Dockerfile"
+              "anki-official/docs/syncserver/entrypoint.sh"
+          )
+          
+          MISSING_FILES=()
+          for file in "${CRITICAL_FILES[@]}"; do
+              if [ ! -f "$file" ]; then
+                  MISSING_FILES+=("$(basename "$file")") # 只获取文件名
+              fi
+          done
+
+          if [ ${#MISSING_FILES[@]} -ne 0 ]; then
+              echo "MISSING_FILES_LIST=${MISSING_FILES[*]}" >> $GITHUB_OUTPUT
+              echo "::warning::Critical files are missing or moved!"
+              echo "NOTIFY=true" >> $GITHUB_OUTPUT
+          else
+              echo "NOTIFY=false" >> $GITHUB_OUTPUT
+          fi
+
+
+      # 3. 创建 GitHub Issue 通知
+      - name: Create Issue Notification
+        if: steps.diff_check.outputs.NOTIFY == 'true'
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const missingFiles = "${{ steps.diff_check.outputs.MISSING_FILES_LIST }}";
+            const repoOwner = context.repo.owner;
+            const repoName = context.repo.repo;
+            
+            const issueTitle = `🚨 Anki 官方 SyncServer 文件结构变动！`;
+            const issueBody = `
+            @${repoOwner}，您的 Anki 同步服务器构建依赖的官方文件结构可能已改变。
+            
+            请注意：
+            - 构建流程依赖的文件路径可能已失效。
+            - 您的 \`sync-server-ci.yml\` 文件中的文件复制步骤（\`cp\`）可能需要更新。
+            
+            **缺失或已移动的文件：**
+            ${missingFiles.split(' ').map(f => `- ${f}`).join('\n')}
+            
+            请检查 Anki 官方仓库：https://github.com/ankitects/anki
+            `;
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: issueTitle,
+              body: issueBody
+            });
