@@ -64,9 +64,6 @@ services:
       # 请替换 /path/to/anki_data 为您主机上的绝对路径
       - /path/to/anki_data:/ankisyncdir
 
-**这是第三部分（启动服务和客户端配置）：**
-
-```markdown
 ### 3. 启动服务
 
 在 `docker-compose.yml` 所在的目录下执行：
