@@ -23,8 +23,8 @@ jobs:
     
     # 定义环境变量，从 Secrets 中获取敏感信息
     env:
-      DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }} # 引用你的用户名 Secret
-      DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }} # 引用你的密码/Token Secret
+      DOCKER_USERNAME: ${{ secrets.DOCKER_HUB_USERNAME }} # 引用你的用户名 Secret
+      DOCKER_PASSWORD: ${{ secrets.DOCKER_HUB_TOKEN }} # 引用你的密码/Token Secret
       # 请将 YOUR_DOCKER_HUB_NAMESPACE 替换为你的 Docker Hub 用户名或组织名
       DOCKER_REPO: maogxer/anki-sync-server 
       
