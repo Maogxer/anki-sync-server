@@ -2,7 +2,7 @@ name: 🚨 Anki Official Files Monitor
 
 on:
   schedule:
-    - cron: '30 4 * * *'
+    - cron: '30 4 * * *' # 保留定时执行，用于定期检查
   workflow_dispatch:
 
 jobs:
@@ -11,6 +11,8 @@ jobs:
     
     permissions:
       contents: write 
+      issues: write # 用于创建 Issue
+      actions: write # 🌟 关键：新增 actions 权限，用于触发构建工作流
 
     steps:
       # 1. 修正：检出 THIS repository 到默认工作区根目录
@@ -23,34 +25,64 @@ jobs:
         with:
           repository: ankitects/anki
           path: anki-official
-          # 🌟 关键修正：添加 fetch-depth: 0 进行完整克隆
-          fetch-depth: 0
+          fetch-depth: 0 # 确保获取完整历史以比较 SHA
 
       
-      # 3. 检查文件变动并获取 SHA
-      - name: Check for Changes and Get Current SHA
+      # 3. 检查文件变动、获取 SHA 和 Tag
+      - name: Check for Changes and Get Current SHA & Tag
         id: diff_check
         run: |
           FILE_PATH_DOCKER="anki-official/docs/syncserver/Dockerfile"
           FILE_PATH_ENTRYPOINT="anki-official/docs/syncserver/entrypoint.sh"
           
+          # 获取当前 Commit SHA
           CURRENT_SHA=$(git -C anki-official rev-parse HEAD)
           echo "CURRENT_SHA=$CURRENT_SHA" >> $GITHUB_OUTPUT
           
-          # 修正路径：直接读取根目录下的文件
+          # 获取上次存储的 SHA
           LAST_SHA=""
           if [ -f last_anki_sha.txt ]; then
               LAST_SHA=$(cat last_anki_sha.txt)
           fi
           
-          echo "上次 SHA: $LAST_SHA"
-          echo "本次 SHA: $CURRENT_SHA"
+          # 🌟 修正：查找最新的官方版本 Tag (移除 '2.*' 限制，支持所有版本)
+          CURRENT_TAG=$(git -C anki-official describe --tags --abbrev=0)
+          echo "CURRENT_TAG=$CURRENT_TAG" >> $GITHUB_OUTPUT
 
-          if [ -z "$LAST_SHA" ] || [ "$LAST_SHA" = "$CURRENT_SHA" ]; then
+          # 获取上次存储的 Tag
+          LAST_TAG=""
+          if [ -f last_anki_tag.txt ]; then
+              LAST_TAG=$(cat last_anki_tag.txt)
+          fi
+          
+          # --- 变动判断逻辑 ---
+          SHA_CHANGED="false"
+          if [ -z "$LAST_SHA" ] || [ "$LAST_SHA" != "$CURRENT_SHA" ]; then
+              SHA_CHANGED="true"
+          fi
+
+          TAG_CHANGED="false"
+          if [ -z "$LAST_TAG" ] || [ "$LAST_TAG" != "$CURRENT_TAG" ]; then
+              TAG_CHANGED="true"
+          fi
+          
+          # 优先判断 Tag 变动
+          if [ "$TAG_CHANGED" = "true" ]; then
+              echo "TAG_CHANGED=true" >> $GITHUB_OUTPUT
+              echo "NOTIFICATION_BODY=- [版本变动] 发现新版本 Tag: ${CURRENT_TAG}。\n" >> $GITHUB_OUTPUT
+              echo "NOTIFY=true" >> $GITHUB_OUTPUT
+              exit 0 
+          fi
+          
+          echo "TAG_CHANGED=false" >> $GITHUB_OUTPUT
+          
+          # 如果 Tag 未变，继续检查文件内容是否变动
+          if [ "$SHA_CHANGED" = "false" ]; then
               echo "NOTIFY=false" >> $GITHUB_OUTPUT
               exit 0
           fi
-
+          
+          # 检查文件内容变动
           DIFF_DOCKER=$(git -C anki-official diff $LAST_SHA $CURRENT_SHA -- $FILE_PATH_DOCKER)
           DIFF_ENTRYPOINT=$(git -C anki-official diff $LAST_SHA $CURRENT_SHA -- $FILE_PATH_ENTRYPOINT)
 
@@ -74,7 +106,7 @@ jobs:
           fi
 
 
-      # 4. 创建 Issue 通知 (不变)
+      # 4. 创建 Issue 通知
       - name: Create Issue Notification
         if: steps.diff_check.outputs.NOTIFY == 'true'
         uses: actions/github-script@v6
@@ -83,11 +115,18 @@ jobs:
           script: |
             const notificationBody = "${{ steps.diff_check.outputs.NOTIFICATION_BODY }}";
             const currentSha = "${{ steps.diff_check.outputs.CURRENT_SHA }}";
+            const currentTag = "${{ steps.diff_check.outputs.CURRENT_TAG }}";
             const repoOwner = context.repo.owner;
             
-            const issueTitle = `🚨 Anki 官方配置变动：Dockerfile/Entrypoint 内容已更新`;
+            let issueTitle = '🚨 Anki 官方配置变动：';
+            if ("${{ steps.diff_check.outputs.TAG_CHANGED }}" === 'true') {
+                issueTitle = `🚀 Anki 官方发布新版本：${currentTag}，已自动触发构建`;
+            } else {
+                issueTitle += 'Dockerfile/Entrypoint 内容已更新';
+            }
+            
             const issueBody = `
-            @${repoOwner}，您的 Anki 同步服务器构建依赖的官方配置已发生变动。请检查是否需要更新 \`sync-server-ci.yml\` 中的依赖项。
+            @${repoOwner}，您的 Anki 同步服务器构建依赖的官方配置已发生变动。请检查是否需要更新 \`build-and-push.yml\` 中的依赖项。
 
             **变动摘要：**
             ${notificationBody}
@@ -97,7 +136,6 @@ jobs:
 
             本次检查的 Anki Commit SHA: \`${currentSha}\`
             `;
-
             await github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -105,16 +143,40 @@ jobs:
               body: issueBody
             });
 
+      # 🌟 4.5 触发构建工作流
+      - name: Trigger Build Workflow
+        if: steps.diff_check.outputs.TAG_CHANGED == 'true'
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const newTag = "${{ steps.diff_check.outputs.CURRENT_TAG }}";
+            
+            // 触发 build-and-push.yml
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'build-and-push.yml', 
+              ref: context.ref, 
+              inputs: {
+                tag: newTag
+              }
+            });
+
       # 5. 更新 SHA 文件
       - name: Update Last Known SHA
         run: |
-          # 修正路径：直接在根目录创建文件
           echo "${{ steps.diff_check.outputs.CURRENT_SHA }}" > last_anki_sha.txt
+      
+      # 🌟 5.5 更新 Tag 文件
+      - name: Update Last Known Tag
+        if: steps.diff_check.outputs.TAG_CHANGED == 'true'
+        run: |
+          echo "${{ steps.diff_check.outputs.CURRENT_TAG }}" > last_anki_tag.txt
           
-      # 6. 提交 SHA 文件到你的仓库
-      - name: Commit SHA Update
+      # 6. 提交 SHA 和 Tag 文件到你的仓库
+      - name: Commit SHA and Tag Update
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: 'CI: Update last known Anki SHA for monitoring'
-          file_pattern: 'last_anki_sha.txt'
-          # 移除 working-directory
+          commit_message: 'CI: Update last known Anki SHA and Tag for monitoring'
+          file_pattern: 'last_anki_sha.txt last_anki_tag.txt'
