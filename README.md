@@ -82,15 +82,15 @@ docker compose up -d
 
 ### 1. Anki 桌面版 (Desktop)
 
-* 进入 **工具 (Tools)** > **偏好设置 (Preferences)**。
-* 在 **网络 (Network)** 标签下，勾选 **自定义同步服务器 (Custom sync server)**。
+* 进入 **工具 (Tools)** > **设置 (Preferences)**。
+* 在 **同步 (Syncing)** 标签下，填写 **自托管同步服务器 (Self-hosted sync server)**。
 * 输入服务器地址和端口，例如：`http://[您的服务器IP]:8080`。
 
 ### 2. AnkiDroid (Android)
 
-* 进入 **设置 (Settings)** > **高级设置 (Advanced)**。
+* 进入 **设置 (Settings)** > **同步 (Sync)**。
 * 找到 **自定义同步服务器 (Custom Sync Server)**。
-* **服务器 URL：** `http://[您的服务器IP]:8080/`
+* **同步地址 (Sync url)：** `http://[您的服务器IP]:8080/`
 * 返回同步界面，输入您在 Docker 环境中设置的用户名和密码。
 
 ### ⚠️ **重要提示：解决同步中断问题**
