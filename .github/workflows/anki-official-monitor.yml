@@ -23,6 +23,9 @@ jobs:
         with:
           repository: ankitects/anki
           path: anki-official
+          # 🌟 关键修正：添加 fetch-depth: 0 进行完整克隆
+          fetch-depth: 0
+
       
       # 3. 检查文件变动并获取 SHA
       - name: Check for Changes and Get Current SHA
