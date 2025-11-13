@@ -51,7 +51,7 @@ services:
     environment:
       # *** 必填：定义至少一个用户和密码（格式：用户名:密码） ***
       # 请务必修改为您自己的安全凭证！
-      SYNC_USER1: "your_anki_username:your_strong_password"
+      - SYNC_USER1: "your_anki_username:your_strong_password"
       
       # 可选：如果需要多个用户，请按 SYNC_USER2, SYNC_USER3, ... 格式添加
       # SYNC_USER2: "user2:pass2"
@@ -59,7 +59,7 @@ services:
     volumes:
       # **重要：** 挂载数据卷，用于持久化您的卡片和媒体文件
       # 请替换 /path/to/anki_data 为您主机上的绝对路径
-      - /path/to/anki_data:/ankisyncdir
+      - /path/to/anki_data:/anki_data
 ```
 
 
