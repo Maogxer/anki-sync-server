@@ -27,26 +27,32 @@ jobs:
           path: anki-official
           fetch-depth: 0 # 确保获取完整历史以比较 SHA
 
-      
       # 3. 检查文件变动、获取 SHA 和 Tag
       - name: Check for Changes and Get Current SHA & Tag
         id: diff_check
         run: |
-          FILE_PATH_DOCKER="anki-official/docs/syncserver/Dockerfile"
-          FILE_PATH_ENTRYPOINT="anki-official/docs/syncserver/entrypoint.sh"
+          FILE_PATH_DOCKER="docs/syncserver/Dockerfile"
+          FILE_PATH_ENTRYPOINT="docs/syncserver/entrypoint.sh"
           
-          # 获取当前 Commit SHA
+          # 获取当前 Commit SHA 并写入 Output
           CURRENT_SHA=$(git -C anki-official rev-parse HEAD)
           echo "CURRENT_SHA=$CURRENT_SHA" >> $GITHUB_OUTPUT
           
-          # 获取上次存储的 SHA
+          # 获取上次存储的 SHA 并写入 Output
           LAST_SHA=""
           if [ -f last_anki_sha.txt ]; then
               LAST_SHA=$(cat last_anki_sha.txt)
           fi
+          echo "LAST_SHA=$LAST_SHA" >> $GITHUB_OUTPUT
+
+          # 🌟 核心修改：通过 GitHub API 强制获取官方标记为 Latest 的最新稳定版本号
+          CURRENT_TAG=$(curl -s https://github.com | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
           
-          # 🌟 修正：查找最新的官方版本 Tag (移除 '2.*' 限制，支持所有版本)
-          CURRENT_TAG=$(git -C anki-official describe --tags --abbrev=0)
+          # 备用方案：如果 API 被限流或失效，则降级使用本地 Git 最新 Tag
+          if [ -z "$CURRENT_TAG" ]; then
+              echo "API 获取失败，降级使用 Git 本地 Tag..."
+              CURRENT_TAG=$(git -C anki-official describe --tags --abbrev=0)
+          fi
           echo "CURRENT_TAG=$CURRENT_TAG" >> $GITHUB_OUTPUT
 
           # 获取上次存储的 Tag
@@ -66,45 +72,42 @@ jobs:
               TAG_CHANGED="true"
           fi
           
+          echo "TAG_CHANGED=$TAG_CHANGED" >> $GITHUB_OUTPUT
+          
+          # 🌟 修复：使用标准 EOF 语法安全处理多行文本写入，防止 Actions 报错
+          echo "NOTIFICATION_BODY<<EOF" >> $GITHUB_OUTPUT
+          
+          NOTIFY="false"
+          
           # 优先判断 Tag 变动
           if [ "$TAG_CHANGED" = "true" ]; then
-              echo "TAG_CHANGED=true" >> $GITHUB_OUTPUT
-              echo "NOTIFICATION_BODY=- [版本变动] 发现新版本 Tag: ${CURRENT_TAG}。\n" >> $GITHUB_OUTPUT
-              echo "NOTIFY=true" >> $GITHUB_OUTPUT
-              exit 0 
+              echo "- [版本变动] 发现新稳定版本 Tag: ${CURRENT_TAG}。" >> $GITHUB_OUTPUT
+              NOTIFY="true"
           fi
           
-          echo "TAG_CHANGED=false" >> $GITHUB_OUTPUT
-          
-          # 如果 Tag 未变，继续检查文件内容是否变动
-          if [ "$SHA_CHANGED" = "false" ]; then
-              echo "NOTIFY=false" >> $GITHUB_OUTPUT
-              exit 0
-          fi
-          
-          # 检查文件内容变动
-          DIFF_DOCKER=$(git -C anki-official diff $LAST_SHA $CURRENT_SHA -- $FILE_PATH_DOCKER)
-          DIFF_ENTRYPOINT=$(git -C anki-official diff $LAST_SHA $CURRENT_SHA -- $FILE_PATH_ENTRYPOINT)
+          # 如果 Tag 未变且 SHA 变了，继续深入检查文件内容是否变动
+          if [ "$TAG_CHANGED" = "false" ] && [ "$SHA_CHANGED" = "true" ] && [ -n "$LAST_SHA" ]; then
+              DIFF_DOCKER=$(git -C anki-official diff $LAST_SHA $CURRENT_SHA -- $FILE_PATH_DOCKER)
+              DIFF_ENTRYPOINT=$(git -C anki-official diff $LAST_SHA $CURRENT_SHA -- $FILE_PATH_ENTRYPOINT)
 
-          DIFF_BODY=""
-          if [ -n "$DIFF_DOCKER" ]; then
-              DIFF_BODY+="- [Dockerfile] 发生内容变动。\n"
-          fi
-          if [ -n "$DIFF_ENTRYPOINT" ]; then
-              DIFF_BODY+="- [entrypoint.sh] 发生内容变动。\n"
+              if [ -n "$DIFF_DOCKER" ]; then
+                  echo "- [Dockerfile] 发生内容变动。" >> $GITHUB_OUTPUT
+                  NOTIFY="true"
+              fi
+              if [ -n "$DIFF_ENTRYPOINT" ]; then
+                  echo "- [entrypoint.sh] 发生内容变动。" >> $GITHUB_OUTPUT
+                  NOTIFY="true"
+              fi
           fi
           
-          if [ ! -f "$FILE_PATH_DOCKER" ] || [ ! -f "$FILE_PATH_ENTRYPOINT" ]; then
-              DIFF_BODY+="- [结构变动] 关键文件缺失或目录已移动。\n"
+          # 🌟 修复：检查文件内容时补全了 anki-official 物理路径前缀
+          if [ ! -f "anki-official/$FILE_PATH_DOCKER" ] || [ ! -f "anki-official/$FILE_PATH_ENTRYPOINT" ]; then
+              echo "- [结构变动] 关键文件缺失或目录已移动。" >> $GITHUB_OUTPUT
+              NOTIFY="true"
           fi
 
-          if [ -n "$DIFF_BODY" ]; then
-              echo "NOTIFICATION_BODY=$DIFF_BODY" >> $GITHUB_OUTPUT
-              echo "NOTIFY=true" >> $GITHUB_OUTPUT
-          else
-              echo "NOTIFY=false" >> $GITHUB_OUTPUT
-          fi
-
+          echo "EOF" >> $GITHUB_OUTPUT
+          echo "NOTIFY=$NOTIFY" >> $GITHUB_OUTPUT
 
       # 4. 创建 Issue 通知
       - name: Create Issue Notification
@@ -113,9 +116,10 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const notificationBody = "${{ steps.diff_check.outputs.NOTIFICATION_BODY }}";
+            const notificationBody = `${{ steps.diff_check.outputs.NOTIFICATION_BODY }}`;
             const currentSha = "${{ steps.diff_check.outputs.CURRENT_SHA }}";
             const currentTag = "${{ steps.diff_check.outputs.CURRENT_TAG }}";
+            const lastSha = "${{ steps.diff_check.outputs.LAST_SHA }}";
             const repoOwner = context.repo.owner;
             
             let issueTitle = '🚨 Anki 官方配置变动：';
@@ -132,7 +136,7 @@ jobs:
             ${notificationBody}
 
             **Git Diff 链接 (本次变动):**
-            https://github.com/ankitects/anki/compare/${{ steps.diff_check.outputs.LAST_SHA }}..${currentSha}
+            https://github.com/ankitects/anki/compare/${lastSha || 'main'}..${currentSha}
 
             本次检查的 Anki Commit SHA: \`${currentSha}\`
             `;
@@ -168,9 +172,8 @@ jobs:
         run: |
           echo "${{ steps.diff_check.outputs.CURRENT_SHA }}" > last_anki_sha.txt
       
-      # 🌟 5.5 更新 Tag 文件
+      # 🌟 5.5 更新 Tag 文件（去掉了 if 条件，防止因为中途跳过导致下一次无法对比）
       - name: Update Last Known Tag
-        if: steps.diff_check.outputs.TAG_CHANGED == 'true'
         run: |
           echo "${{ steps.diff_check.outputs.CURRENT_TAG }}" > last_anki_tag.txt
           
