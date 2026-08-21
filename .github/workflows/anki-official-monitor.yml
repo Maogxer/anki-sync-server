@@ -15,7 +15,7 @@ jobs:
       actions: write # 🌟 关键：新增 actions 权限，用于触发构建工作流
 
     steps:
-      # 1. 修正：检出 THIS repository 到默认工作区根目录
+      # 1. 检出 THIS repository 到默认工作区根目录
       - name: Checkout THIS repository
         uses: actions/checkout@v4
         
@@ -172,8 +172,9 @@ jobs:
         run: |
           echo "${{ steps.diff_check.outputs.CURRENT_SHA }}" > last_anki_sha.txt
       
-      # 7. 更新 Tag 文件（移除了原脚本中阻碍运行的 if 条件和中途退出，确保状态文件一定能成功持久化）
-      run: |
+      # 7. 更新 Tag 文件（🌟 修复了漏掉的格式定义）
+      - name: Update Last Known Tag
+        run: |
           echo "${{ steps.diff_check.outputs.CURRENT_TAG }}" > last_anki_tag.txt
           
       # 8. 提交 SHA 和 Tag 文件到你的仓库
