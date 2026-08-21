@@ -2,7 +2,7 @@ name: 🚨 Anki Official Files Monitor
 
 on:
   schedule:
-    - cron: '30 4 * * *' # 保留定时执行，用于定期检查
+    - cron: '30 4 * * *'
   workflow_dispatch:
 
 jobs:
@@ -11,57 +11,49 @@ jobs:
     
     permissions:
       contents: write 
-      issues: write # 用于创建 Issue
-      actions: write # 🌟 关键：新增 actions 权限，用于触发构建工作流
+      issues: write
+      actions: write
 
     steps:
-      # 1. 检出 THIS repository 到默认工作区根目录
       - name: Checkout THIS repository
         uses: actions/checkout@v4
         
-      # 2. 克隆 Anki 官方仓库到子目录
       - name: Clone Anki Official Repository
         uses: actions/checkout@v4
         with:
           repository: ankitects/anki
           path: anki-official
-          fetch-depth: 0 # 确保获取完整历史以比较 SHA
+          fetch-depth: 0
 
-      # 3. 检查文件变动、获取 SHA 和 Tag
       - name: Check for Changes and Get Current SHA & Tag
         id: diff_check
         run: |
           FILE_PATH_DOCKER="docs/syncserver/Dockerfile"
           FILE_PATH_ENTRYPOINT="docs/syncserver/entrypoint.sh"
           
-          # 获取当前 Commit SHA 并写入 Output
           CURRENT_SHA=$(git -C anki-official rev-parse HEAD)
           echo "CURRENT_SHA=$CURRENT_SHA" >> $GITHUB_OUTPUT
           
-          # 获取上次存储的 SHA 并写入 Output
           LAST_SHA=""
           if [ -f last_anki_sha.txt ]; then
               LAST_SHA=$(cat last_anki_sha.txt)
           fi
           echo "LAST_SHA=$LAST_SHA" >> $GITHUB_OUTPUT
 
-          # 🌟 彻底解决卡版本问题：通过 GitHub API 强制获取官方标记为 Latest 的最新稳定版本号
+          # 🌟 强行使用 API 抓取官方最权威的 "Latest" 稳定版标签
           CURRENT_TAG=$(curl -s https://github.com | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
           
-          # 备用方案：如果 API 被限流或失效，则降级使用本地 Git 最新 Tag
           if [ -z "$CURRENT_TAG" ]; then
               echo "API 获取失败，降级使用 Git 本地 Tag..."
               CURRENT_TAG=$(git -C anki-official describe --tags --abbrev=0)
           fi
           echo "CURRENT_TAG=$CURRENT_TAG" >> $GITHUB_OUTPUT
 
-          # 获取上次存储的 Tag
           LAST_TAG=""
           if [ -f last_anki_tag.txt ]; then
               LAST_TAG=$(cat last_anki_tag.txt)
           fi
           
-          # --- 变动判断逻辑 ---
           SHA_CHANGED="false"
           if [ -z "$LAST_SHA" ] || [ "$LAST_SHA" != "$CURRENT_SHA" ]; then
               SHA_CHANGED="true"
@@ -74,18 +66,16 @@ jobs:
           
           echo "TAG_CHANGED=$TAG_CHANGED" >> $GITHUB_OUTPUT
           
-          # 使用标准 EOF 语法安全处理多行文本写入，防止 Actions 报错崩溃
+          # 安全的多行写入语法
           echo "NOTIFICATION_BODY<<EOF" >> $GITHUB_OUTPUT
           
           NOTIFY="false"
           
-          # 优先判断 Tag 变动
           if [ "$TAG_CHANGED" = "true" ]; then
               echo "- [版本变动] 发现新稳定版本 Tag: ${CURRENT_TAG}。" >> $GITHUB_OUTPUT
               NOTIFY="true"
           fi
           
-          # 如果 Tag 未变且 SHA 变了，继续深入检查文件内容是否变动
           if [ "$TAG_CHANGED" = "false" ] && [ "$SHA_CHANGED" = "true" ] && [ -n "$LAST_SHA" ]; then
               DIFF_DOCKER=$(git -C anki-official diff $LAST_SHA $CURRENT_SHA -- $FILE_PATH_DOCKER)
               DIFF_ENTRYPOINT=$(git -C anki-official diff $LAST_SHA $CURRENT_SHA -- $FILE_PATH_ENTRYPOINT)
@@ -100,7 +90,6 @@ jobs:
               fi
           fi
           
-          # 检查文件物理存在性 (修正了路径)
           if [ ! -f "anki-official/$FILE_PATH_DOCKER" ] || [ ! -f "anki-official/$FILE_PATH_ENTRYPOINT" ]; then
               echo "- [结构变动] 关键文件缺失或目录已移动。" >> $GITHUB_OUTPUT
               NOTIFY="true"
@@ -109,7 +98,6 @@ jobs:
           echo "EOF" >> $GITHUB_OUTPUT
           echo "NOTIFY=$NOTIFY" >> $GITHUB_OUTPUT
 
-      # 4. 创建 Issue 通知
       - name: Create Issue Notification
         if: steps.diff_check.outputs.NOTIFY == 'true'
         uses: actions/github-script@v6
@@ -147,7 +135,6 @@ jobs:
               body: issueBody
             });
 
-      # 5. 触发构建工作流
       - name: Trigger Build Workflow
         if: steps.diff_check.outputs.TAG_CHANGED == 'true'
         uses: actions/github-script@v6
@@ -155,8 +142,6 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const newTag = "${{ steps.diff_check.outputs.CURRENT_TAG }}";
-            
-            // 触发 build-and-push.yml
             await github.rest.actions.createWorkflowDispatch({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -167,19 +152,16 @@ jobs:
               }
             });
 
-      # 6. 更新 SHA 文件
       - name: Update Last Known SHA
         run: |
           echo "${{ steps.diff_check.outputs.CURRENT_SHA }}" > last_anki_sha.txt
       
-      # 7. 更新 Tag 文件（🌟 修复了漏掉的格式定义）
       - name: Update Last Known Tag
         run: |
           echo "${{ steps.diff_check.outputs.CURRENT_TAG }}" > last_anki_tag.txt
           
-      # 8. 提交 SHA 和 Tag 文件到你的仓库
       - name: Commit SHA and Tag Update
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: 'CI: Update last known Anki SHA and Tag for monitoring'
+          commit_message: 'CI: Force update Anki tracker logic'
           file_pattern: 'last_anki_sha.txt last_anki_tag.txt'
