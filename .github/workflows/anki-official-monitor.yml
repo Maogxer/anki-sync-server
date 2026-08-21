@@ -45,7 +45,7 @@ jobs:
           fi
           echo "LAST_SHA=$LAST_SHA" >> $GITHUB_OUTPUT
 
-          # 🌟 核心修改：通过 GitHub API 强制获取官方标记为 Latest 的最新稳定版本号
+          # 🌟 彻底解决卡版本问题：通过 GitHub API 强制获取官方标记为 Latest 的最新稳定版本号
           CURRENT_TAG=$(curl -s https://github.com | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
           
           # 备用方案：如果 API 被限流或失效，则降级使用本地 Git 最新 Tag
@@ -74,7 +74,7 @@ jobs:
           
           echo "TAG_CHANGED=$TAG_CHANGED" >> $GITHUB_OUTPUT
           
-          # 🌟 修复：使用标准 EOF 语法安全处理多行文本写入，防止 Actions 报错
+          # 使用标准 EOF 语法安全处理多行文本写入，防止 Actions 报错崩溃
           echo "NOTIFICATION_BODY<<EOF" >> $GITHUB_OUTPUT
           
           NOTIFY="false"
@@ -100,7 +100,7 @@ jobs:
               fi
           fi
           
-          # 🌟 修复：检查文件内容时补全了 anki-official 物理路径前缀
+          # 检查文件物理存在性 (修正了路径)
           if [ ! -f "anki-official/$FILE_PATH_DOCKER" ] || [ ! -f "anki-official/$FILE_PATH_ENTRYPOINT" ]; then
               echo "- [结构变动] 关键文件缺失或目录已移动。" >> $GITHUB_OUTPUT
               NOTIFY="true"
@@ -136,7 +136,7 @@ jobs:
             ${notificationBody}
 
             **Git Diff 链接 (本次变动):**
-            https://github.com/ankitects/anki/compare/${lastSha || 'main'}..${currentSha}
+            https://github.com{lastSha || 'main'}..${currentSha}
 
             本次检查的 Anki Commit SHA: \`${currentSha}\`
             `;
@@ -147,7 +147,7 @@ jobs:
               body: issueBody
             });
 
-      # 🌟 4.5 触发构建工作流
+      # 5. 触发构建工作流
       - name: Trigger Build Workflow
         if: steps.diff_check.outputs.TAG_CHANGED == 'true'
         uses: actions/github-script@v6
@@ -167,17 +167,16 @@ jobs:
               }
             });
 
-      # 5. 更新 SHA 文件
+      # 6. 更新 SHA 文件
       - name: Update Last Known SHA
         run: |
           echo "${{ steps.diff_check.outputs.CURRENT_SHA }}" > last_anki_sha.txt
       
-      # 🌟 5.5 更新 Tag 文件（去掉了 if 条件，防止因为中途跳过导致下一次无法对比）
-      - name: Update Last Known Tag
-        run: |
+      # 7. 更新 Tag 文件（移除了原脚本中阻碍运行的 if 条件和中途退出，确保状态文件一定能成功持久化）
+      run: |
           echo "${{ steps.diff_check.outputs.CURRENT_TAG }}" > last_anki_tag.txt
           
-      # 6. 提交 SHA 和 Tag 文件到你的仓库
+      # 8. 提交 SHA 和 Tag 文件到你的仓库
       - name: Commit SHA and Tag Update
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
