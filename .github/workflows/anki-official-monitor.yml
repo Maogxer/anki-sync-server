@@ -40,12 +40,13 @@ jobs:
           fi
           echo "LAST_SHA=$LAST_SHA" >> $GITHUB_OUTPUT
 
-          # 🌟 强行使用 API 抓取官方最权威的 "Latest" 稳定版标签
+          # 🌟 精准破局：直接通过官方 API 抓取权威的 Latest 稳定版标签（绕过分支限制）
           CURRENT_TAG=$(curl -s https://github.com | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
           
+          # 降级备用方案：如果 API 偶尔受限，则降级使用 Git 版本号严格排序法
           if [ -z "$CURRENT_TAG" ]; then
-              echo "API 获取失败，降级使用 Git 本地 Tag..."
-              CURRENT_TAG=$(git -C anki-official describe --tags --abbrev=0)
+              echo "API 获取失败，降级使用 Git 标签排序法..."
+              CURRENT_TAG=$(git -C anki-official tag | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)
           fi
           echo "CURRENT_TAG=$CURRENT_TAG" >> $GITHUB_OUTPUT
 
@@ -66,7 +67,7 @@ jobs:
           
           echo "TAG_CHANGED=$TAG_CHANGED" >> $GITHUB_OUTPUT
           
-          # 安全的多行写入语法
+          # 标准多行文本安全写入语法
           echo "NOTIFICATION_BODY<<EOF" >> $GITHUB_OUTPUT
           
           NOTIFY="false"
@@ -163,5 +164,5 @@ jobs:
       - name: Commit SHA and Tag Update
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: 'CI: Force update Anki tracker logic'
+          commit_message: 'CI: Upgrade tracking logic using GitHub API'
           file_pattern: 'last_anki_sha.txt last_anki_tag.txt'
